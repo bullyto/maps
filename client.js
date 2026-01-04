@@ -162,6 +162,11 @@ async function pollState(){
     setState("bad", "Refusé");
     stopAll();
     return;
+  } else if(data.status === "ended") {
+    setText(els.status, "Terminé");
+    setState("bad", "Terminé");
+    stopAll();
+    return;
   } else if(data.status === "expired") {
     setText(els.status, "Expiré");
     setState("bad", "Expiré");
