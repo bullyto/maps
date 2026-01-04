@@ -1,96 +1,73 @@
-/* Apéro de Nuit • Suivi — Service Worker (agressif + offline)
-   - Incrémente APP_VERSION à chaque déploiement
+/* Service Worker — And-Suivi (PWA)
+   Offline-first shell (pages + JS/CSS). Map tiles are NOT cached here.
 */
-const APP_VERSION = "2.0.0";
-const CACHE = "adn-suivi-cache-v2";
-
-const PRECACHE = [
+const CACHE_NAME = "and-suivi-shell-v1";
+const ASSETS = [
   "./",
   "./index.html",
   "./client.html",
   "./driver.html",
-  "./offline.html",
-  "./styles.css",
   "./app.js",
+  "./config.js",
   "./shared.js",
   "./client.js",
   "./driver.js",
-  "./config.js",
   "./manifest.webmanifest",
-  "./icons/icon-192.svg",
-  "./icons/icon-512.svg"
+  "./offline.html"
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil((async () => {
-    const cache = await caches.open(CACHE);
-    await cache.addAll(PRECACHE.map(u => new Request(u, { cache: "reload" })));
-    self.skipWaiting();
-  })());
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil((async () => {
-    const keys = await caches.keys();
-    await Promise.all(keys.map(k => (k !== CACHE) ? caches.delete(k) : Promise.resolve()));
-    await self.clients.claim();
-  })());
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
 });
-
-self.addEventListener("message", (event) => {
-  const msg = event.data || {};
-  if (msg.type === "SKIP_WAITING") self.skipWaiting();
-});
-
-async function networkFirst(request) {
-  try {
-    const fresh = await fetch(request);
-    const cache = await caches.open(CACHE);
-    cache.put(request, fresh.clone());
-    return fresh;
-  } catch (e) {
-    const cached = await caches.match(request);
-    return cached || caches.match("./offline.html");
-  }
-}
-
-async function cacheFirst(request) {
-  const cached = await caches.match(request);
-  if (cached) {
-    fetch(request).then(async (fresh) => {
-      const cache = await caches.open(CACHE);
-      cache.put(request, fresh.clone());
-    }).catch(() => {});
-    return cached;
-  }
-  const fresh = await fetch(request);
-  const cache = await caches.open(CACHE);
-  cache.put(request, fresh.clone());
-  return fresh;
-}
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
+  if (req.method !== "GET") return;
+
   const url = new URL(req.url);
-  if (url.origin !== location.origin) return;
 
-  if (req.mode === "navigate") {
-    event.respondWith(networkFirst(req));
-    return;
-  }
+  // Don't cache cross-origin requests (OSM tiles, Worker API, etc.)
+  if (url.origin !== self.location.origin) return;
 
-  const isAsset =
-    url.pathname.endsWith(".css") ||
-    url.pathname.endsWith(".js") ||
-    url.pathname.endsWith(".svg") ||
-    url.pathname.endsWith(".webmanifest") ||
-    url.pathname.endsWith(".html") ||
-    url.pathname === "/";
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE_NAME);
 
-  if (isAsset) {
-    event.respondWith(cacheFirst(req));
-    return;
-  }
+    // Navigation requests: network-first with offline fallback
+    if (req.mode === "navigate") {
+      try {
+        const fresh = await fetch(req);
+        cache.put(req, fresh.clone());
+        return fresh;
+      } catch (e) {
+        const cached = await cache.match(req);
+        return cached || cache.match("./offline.html");
+      }
+    }
 
-  event.respondWith(networkFirst(req));
+    // Assets: cache-first
+    const cached = await cache.match(req);
+    if (cached) return cached;
+
+    try {
+      const fresh = await fetch(req);
+      cache.put(req, fresh.clone());
+      return fresh;
+    } catch (e) {
+      // If asset missing, fall back to offline for html
+      if (req.headers.get("accept")?.includes("text/html")) {
+        return cache.match("./offline.html");
+      }
+      throw e;
+    }
+  })());
 });
