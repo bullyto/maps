@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f1216" />
+  <title>Apéro de Nuit • Suivi</title>
+
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon-192.svg" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.svg" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="dot" aria-hidden="true"></div>
+      <div class="title">
+        <div class="h1">Apéro de Nuit</div>
+        <div class="h2">Suivi de commande • sécurisé • 25 min</div>
+      </div>
+    </div>
+    <button id="btnInstall" class="btn ghost" hidden>Installer</button>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <div class="row">
+        <div>
+          <div class="label">Statut</div>
+          <div id="status" class="value">Chargement…</div>
+        </div>
+        <div class="right">
+          <div class="label">Version</div>
+          <div class="value mono">2.0.0</div>
+        </div>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="grid">
+        <a class="btn primary" href="./client.html">Je suis client</a>
+        <a class="btn" href="./driver.html">Je suis livreur</a>
+        <button id="btnCheckUpdate" class="btn">Forcer mise à jour</button>
+      </div>
+
+      <p class="hint">
+        <b>Simple.</b> Le client partage sa position (obligatoire) → le livreur accepte → suivi en temps réel.
+        L’accès est limité à <b>25 minutes</b> par défaut.
+      </p>
+    </section>
+
+    <section class="card">
+      <div class="label">Confiance & confidentialité</div>
+      <ul class="list">
+        <li>Les clients ne se voient <b>jamais</b> entre eux.</li>
+        <li>Le client voit uniquement le <b>livreur</b> (pas l’itinéraire, pas d’estimation).</li>
+        <li>Le livreur peut <b>couper</b> l’accès à tout moment.</li>
+        <li>Notification “<b>arrivée</b>” à ~500m (si autorisée).</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="legal">
+    L’abus d’alcool est dangereux pour la santé, à consommer avec modération.
+  </footer>
+
+  <script src="./app.js"></script>
+</body>
+</html>

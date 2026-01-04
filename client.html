@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f1216" />
+  <title>Client • Suivi commande</title>
+
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon-192.svg" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.svg" />
+  <link rel="stylesheet" href="./styles.css" />
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    #map{height: calc(100vh - 64px - 220px); width:100%; border-radius:18px; overflow:hidden;}
+    .mini{font-size:12px;color:var(--muted)}
+    .row2{display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between;}
+    .input{width:100%; padding:12px; border-radius:14px; border:1px solid var(--stroke); background: rgba(255,255,255,.04); color: var(--text);}
+    .badge{display:inline-flex; gap:8px; align-items:center; padding:8px 10px; border-radius:999px; border:1px solid var(--stroke); background: rgba(255,255,255,.04);}
+    .badgeDot{width:10px;height:10px;border-radius:999px;background:var(--warn);}
+    .badgeDot.ok{background:var(--good)}
+    .badgeDot.bad{background:var(--bad)}
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="dot" aria-hidden="true"></div>
+      <div class="title">
+        <div class="h1">Suivi de commande</div>
+        <div class="h2">Partage position requis • accès limité</div>
+      </div>
+    </div>
+    <a class="btn ghost" href="./index.html">Retour</a>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <div class="row">
+        <div>
+          <div class="label">Statut</div>
+          <div id="status" class="value">Prêt</div>
+        </div>
+        <div class="right">
+          <div class="badge"><span id="dot" class="badgeDot"></span><span id="pill">En attente</span></div>
+        </div>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="grid">
+        <div>
+          <div class="label">API (Worker)</div>
+          <input id="api" class="input" placeholder="https://and-suivi.apero-nuit-du-66.workers.dev">
+        </div>
+        <div>
+          <div class="label">Session (si déjà fournie)</div>
+          <input id="session" class="input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+        </div>
+        <div>
+          <div class="label">—</div>
+          <button id="btnRequest" class="btn primary">Demander le suivi</button>
+        </div>
+      </div>
+
+      <p class="hint">
+        <b>Important :</b> si tu refuses la géolocalisation, le suivi est impossible.
+      </p>
+    </section>
+
+    <section class="card">
+      <div class="row2">
+        <div>
+          <div class="label">Carte</div>
+          <div class="mini" id="meta">—</div>
+        </div>
+        <div class="right">
+          <button id="btnRecenter" class="btn">Recentrer</button>
+          <button id="btnNotif" class="btn ghost">Activer notif</button>
+        </div>
+      </div>
+      <div class="sep"></div>
+      <div id="map"></div>
+      <p class="hint" id="countdown"></p>
+    </section>
+  </main>
+
+  <footer class="legal">
+    L’abus d’alcool est dangereux pour la santé, à consommer avec modération.
+  </footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script type="module" src="./client.js"></script>
+</body>
+</html>

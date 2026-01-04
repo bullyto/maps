@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f1216" />
+  <title>Livreur • Suivi</title>
+
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon-192.svg" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.svg" />
+  <link rel="stylesheet" href="./styles.css" />
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    #map{height: calc(100vh - 64px - 280px); width:100%; border-radius:18px; overflow:hidden;}
+    .input{width:100%; padding:12px; border-radius:14px; border:1px solid var(--stroke); background: rgba(255,255,255,.04); color: var(--text);}
+    .row2{display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between;}
+    .tag{font-size:12px; padding:6px 10px; border-radius:999px; border:1px solid var(--stroke); background: rgba(255,255,255,.04); color: var(--muted)}
+    .req{display:flex; flex-direction:column; gap:8px; padding:12px; border-radius:16px; border:1px solid var(--stroke); background: rgba(255,255,255,.03);}
+    .reqTop{display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between;}
+    .btnRow{display:flex; gap:10px; flex-wrap:wrap;}
+    .mini{font-size:12px;color:var(--muted)}
+    .slider{width:100%}
+    .two{display:grid; grid-template-columns: 1fr; gap:12px;}
+    @media (min-width: 820px){ .two{grid-template-columns: 1.2fr .8fr;} }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="dot" aria-hidden="true"></div>
+      <div class="title">
+        <div class="h1">Livreur</div>
+        <div class="h2">Demandes • validation • multi-clients</div>
+      </div>
+    </div>
+    <a class="btn ghost" href="./index.html">Retour</a>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <div class="row">
+        <div>
+          <div class="label">Statut tracking</div>
+          <div id="status" class="value">Prêt</div>
+        </div>
+        <div class="right">
+          <span class="tag">Accès client: 25 min par défaut</span>
+        </div>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="grid">
+        <div>
+          <div class="label">API (Worker)</div>
+          <input id="api" class="input" placeholder="https://and-suivi.apero-nuit-du-66.workers.dev">
+        </div>
+        <div>
+          <div class="label">Driver token (secret local)</div>
+          <input id="dtoken" class="input" placeholder="Auto-généré et stocké sur ce téléphone">
+        </div>
+        <div>
+          <div class="label">—</div>
+          <div class="btnRow">
+            <button id="btnStart" class="btn primary">Démarrer GPS</button>
+            <button id="btnStop" class="btn danger">Stop</button>
+          </div>
+        </div>
+      </div>
+
+      <p class="hint">
+        Installe la PWA + coupe l’économie batterie pour Chrome/PWA pour éviter les coupures en arrière-plan.
+      </p>
+    </section>
+
+    <section class="card two">
+      <div>
+        <div class="row2">
+          <div>
+            <div class="label">Carte</div>
+            <div class="mini" id="meta">—</div>
+          </div>
+          <div class="right">
+            <button id="btnRecenter" class="btn">Recentrer</button>
+          </div>
+        </div>
+        <div class="sep"></div>
+        <div id="map"></div>
+      </div>
+
+      <div>
+        <div class="label">Demandes clients</div>
+        <div class="mini">Accepte/refuse + choisis la durée (max 25 min).</div>
+        <div class="sep"></div>
+
+        <div class="label">Durée autorisée</div>
+        <input id="dur" class="slider" type="range" min="5" max="25" step="1" value="25" />
+        <div class="mini">Durée : <b id="durTxt">25</b> min</div>
+
+        <div class="sep"></div>
+
+        <div id="requests"></div>
+
+        <div class="sep"></div>
+        <div class="label">Historique local</div>
+        <div class="mini">Les 5 dernières positions par client (sur ce téléphone uniquement).</div>
+        <div id="hist" class="mini" style="margin-top:8px"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="legal">
+    L’abus d’alcool est dangereux pour la santé, à consommer avec modération.
+  </footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script type="module" src="./driver.js"></script>
+</body>
+</html>
