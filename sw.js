@@ -7,7 +7,7 @@
        * assets: cache-first + refresh en arrière plan
 */
 const APP_VERSION = "1.0.0";
-const CACHE = "adn-pwa-1.0.0";
+const CACHE = "adn-pwa-2.0";
 
 const PRECACHE = [
   "./",
