@@ -13,8 +13,7 @@
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
-    #map{height: calc(100vh - 64px - 280px); width:100%; border-radius:18px; overflow:hidden;}
-    .input{width:100%; padding:12px; border-radius:14px; border:1px solid var(--stroke); background: rgba(255,255,255,.04); color: var(--text);}
+    #map{height: calc(100vh - 64px - 270px); width:100%; border-radius:18px; overflow:hidden;}
     .row2{display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between;}
     .tag{font-size:12px; padding:6px 10px; border-radius:999px; border:1px solid var(--stroke); background: rgba(255,255,255,.04); color: var(--muted)}
     .req{display:flex; flex-direction:column; gap:8px; padding:12px; border-radius:16px; border:1px solid var(--stroke); background: rgba(255,255,255,.03);}
@@ -31,8 +30,8 @@
     <div class="brand">
       <div class="dot" aria-hidden="true"></div>
       <div class="title">
-        <div class="h1">Livreur</div>
-        <div class="h2">Demandes • validation • multi-clients</div>
+        <div class="h1">Espace livreur</div>
+        <div class="h2">zéro réglage • accepte/refuse • multi-clients</div>
       </div>
     </div>
     <a class="btn ghost" href="./index.html">Retour</a>
@@ -46,32 +45,20 @@
           <div id="status" class="value">Prêt</div>
         </div>
         <div class="right">
-          <span class="tag">Accès client: 25 min par défaut</span>
+          <span class="tag">Accès client max : 25 min</span>
         </div>
       </div>
 
       <div class="sep"></div>
 
-      <div class="grid">
-        <div>
-          <div class="label">API (Worker)</div>
-          <input id="api" class="input" placeholder="https://and-suivi.apero-nuit-du-66.workers.dev">
-        </div>
-        <div>
-          <div class="label">Driver token (secret local)</div>
-          <input id="dtoken" class="input" placeholder="Auto-généré et stocké sur ce téléphone">
-        </div>
-        <div>
-          <div class="label">—</div>
-          <div class="btnRow">
-            <button id="btnStart" class="btn primary">Démarrer GPS</button>
-            <button id="btnStop" class="btn danger">Stop</button>
-          </div>
-        </div>
+      <div class="btnRow">
+        <button id="btnStart" class="btn primary" style="flex:1">Démarrer GPS</button>
+        <button id="btnStop" class="btn danger" style="flex:1">Stop</button>
+        <button id="btnRecenter" class="btn" style="flex:1">Recentrer</button>
       </div>
 
       <p class="hint">
-        Installe la PWA + coupe l’économie batterie pour Chrome/PWA pour éviter les coupures en arrière-plan.
+        Installe la PWA + coupe l’économie batterie pour éviter les coupures en arrière-plan.
       </p>
     </section>
 
@@ -82,9 +69,6 @@
             <div class="label">Carte</div>
             <div class="mini" id="meta">—</div>
           </div>
-          <div class="right">
-            <button id="btnRecenter" class="btn">Recentrer</button>
-          </div>
         </div>
         <div class="sep"></div>
         <div id="map"></div>
@@ -92,7 +76,8 @@
 
       <div>
         <div class="label">Demandes clients</div>
-        <div class="mini">Accepte/refuse + choisis la durée (max 25 min).</div>
+        <div class="mini">Accepte/refuse + choisis la durée.</div>
+
         <div class="sep"></div>
 
         <div class="label">Durée autorisée</div>

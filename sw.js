@@ -15,6 +15,7 @@ const PRECACHE = [
   "./shared.js",
   "./client.js",
   "./driver.js",
+  "./config.js",
   "./manifest.webmanifest",
   "./icons/icon-192.svg",
   "./icons/icon-512.svg"

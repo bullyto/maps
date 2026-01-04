@@ -1,8 +1,7 @@
-import { qs, apiFetchJson, setText, shortToken, getOrCreateDriverToken, fmtAgo } from "./shared.js";
+import { apiFetchJson, setText, shortToken, getOrCreateDriverToken, fmtAgo } from "./shared.js";
+import { API_BASE, MAX_MINUTES } from "./config.js";
 
 const els = {
-  api: document.getElementById("api"),
-  dtoken: document.getElementById("dtoken"),
   status: document.getElementById("status"),
   meta: document.getElementById("meta"),
   btnStart: document.getElementById("btnStart"),
@@ -14,11 +13,7 @@ const els = {
   hist: document.getElementById("hist"),
 };
 
-const params = qs();
-if (params.get("api")) els.api.value = decodeURIComponent(params.get("api"));
-
 const driverToken = getOrCreateDriverToken();
-els.dtoken.value = driverToken;
 
 let map, driverMarker, clientsLayer;
 let lastDriver = null;
@@ -32,14 +27,10 @@ function initMap() {
   clientsLayer = L.layerGroup().addTo(map);
 }
 
-function center() {
-  if (lastDriver) map.setView(lastDriver, Math.max(map.getZoom(), 16));
-}
+function center() { if (lastDriver) map.setView(lastDriver, Math.max(map.getZoom(), 16)); }
 els.btnRecenter.addEventListener("click", center);
 
-els.dur.addEventListener("input", () => {
-  setText(els.durTxt, String(els.dur.value));
-});
+els.dur.addEventListener("input", () => { setText(els.durTxt, String(els.dur.value)); });
 
 function pushLocalHistory(session, lat, lng) {
   const k = "adn_hist_" + session;
@@ -62,19 +53,16 @@ function renderHistory(sessions) {
 }
 
 async function startGps() {
-  const api = els.api.value.trim().replace(/\/+$/, "");
-  if (!api) return alert("Ajoute l'URL de ton Worker");
   setText(els.status, "GPS…");
-
   if (!navigator.geolocation) return alert("GPS non disponible");
   if (watchId) return;
 
   watchId = navigator.geolocation.watchPosition((pos) => {
     lastDriver = [pos.coords.latitude, pos.coords.longitude];
     driverMarker.setLatLng(lastDriver);
-    setText(els.meta, `Maj: ${new Date().toLocaleTimeString()} • Token: ${shortToken(driverToken)}`);
+    setText(els.meta, `Maj: ${new Date().toLocaleTimeString()} • ID: ${shortToken(driverToken)}`);
 
-    fetch(api + "/driver/update", {
+    fetch(API_BASE + "/driver/update", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -112,16 +100,11 @@ async function reverseGeocode(lat, lng) {
     const r = await fetch(u, { headers: { "Accept": "application/json" } });
     const j = await r.json();
     return j.display_name || null;
-  } catch (e) {
-    return null;
-  }
+  } catch { return null; }
 }
 
 async function pollRequests() {
-  const api = els.api.value.trim().replace(/\/+$/, "");
-  if (!api) return;
-
-  const data = await apiFetchJson(api + "/driver/dashboard?driver_token=" + encodeURIComponent(driverToken));
+  const data = await apiFetchJson(API_BASE + "/driver/dashboard?driver_token=" + encodeURIComponent(driverToken));
   const sessions = data.sessions || [];
 
   clientsLayer.clearLayers();
@@ -150,7 +133,7 @@ async function pollRequests() {
     if (!addr && s.client_lat != null && s.client_lng != null) {
       addr = await reverseGeocode(s.client_lat, s.client_lng);
       if (addr) {
-        fetch(api + "/driver/address", {
+        fetch(API_BASE + "/driver/address", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ driver_token: driverToken, session: s.session, address: addr })
@@ -184,22 +167,22 @@ async function pollRequests() {
     btn.addEventListener("click", async () => {
       const act = btn.getAttribute("data-act");
       const session = btn.getAttribute("data-s");
-      const mins = Number(els.dur.value) || 25;
+      const mins = Math.min(Number(els.dur.value) || MAX_MINUTES, MAX_MINUTES);
 
       if (act === "accept") {
-        await apiFetchJson(api + "/driver/decision", {
+        await apiFetchJson(API_BASE + "/driver/decision", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ driver_token: driverToken, session, decision: "accept", minutes: mins })
         });
       } else if (act === "deny") {
-        await apiFetchJson(api + "/driver/decision", {
+        await apiFetchJson(API_BASE + "/driver/decision", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ driver_token: driverToken, session, decision: "deny" })
         });
       } else if (act === "stop") {
-        await apiFetchJson(api + "/driver/decision", {
+        await apiFetchJson(API_BASE + "/driver/decision", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ driver_token: driverToken, session, decision: "stop" })

@@ -1,8 +1,7 @@
-import { qs, apiFetchJson, setText, shortToken, getOrCreateClientId, fmtAgo } from "./shared.js";
+import { apiFetchJson, setText, shortToken, getOrCreateClientId, fmtAgo } from "./shared.js";
+import { API_BASE } from "./config.js";
 
 const els = {
-  api: document.getElementById("api"),
-  session: document.getElementById("session"),
   status: document.getElementById("status"),
   pill: document.getElementById("pill"),
   dot: document.getElementById("dot"),
@@ -12,10 +11,6 @@ const els = {
   btnRecenter: document.getElementById("btnRecenter"),
   btnNotif: document.getElementById("btnNotif"),
 };
-
-const params = qs();
-if(params.get("api")) els.api.value = decodeURIComponent(params.get("api"));
-if(params.get("session")) els.session.value = decodeURIComponent(params.get("session"));
 
 const clientId = getOrCreateClientId();
 
@@ -67,10 +62,7 @@ els.btnNotif.addEventListener("click", async () => {
 function updateCountdown(){
   if(!expiresAt) { setText(els.countdown, ""); return; }
   const ms = expiresAt - Date.now();
-  if(ms <= 0) {
-    setText(els.countdown, "Accès terminé.");
-    return;
-  }
+  if(ms <= 0) { setText(els.countdown, "Accès terminé."); return; }
   const m = Math.floor(ms/60000);
   const s = Math.floor((ms%60000)/1000);
   setText(els.countdown, `Accès actif • expire dans ${m}m ${s}s`);
@@ -81,13 +73,12 @@ async function startWatchPosition() {
   if(!navigator.geolocation) throw new Error("GPS non disponible");
   if(watchId) return;
 
-  watchId = navigator.geolocation.watchPosition(async (pos) => {
+  watchId = navigator.geolocation.watchPosition((pos) => {
     lastMe = [pos.coords.latitude, pos.coords.longitude];
     meMarker.setLatLng(lastMe);
 
     if(sessionId) {
-      const api = els.api.value.trim().replace(/\/+$/,"");
-      fetch(api + "/client/ping", {
+      fetch(API_BASE + "/client/ping", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
         body: JSON.stringify({
@@ -109,8 +100,6 @@ async function startWatchPosition() {
 }
 
 async function requestFollow() {
-  const api = els.api.value.trim().replace(/\/+$/,"");
-  if(!api) return alert("Ajoute l'URL de ton Worker");
   setText(els.status, "Demande…");
   setState("", "Demande…");
 
@@ -130,7 +119,7 @@ async function requestFollow() {
     return alert("Tu dois accepter la géolocalisation pour suivre la commande.");
   }
 
-  const data = await apiFetchJson(api + "/client/request", {
+  const data = await apiFetchJson(API_BASE + "/client/request", {
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body: JSON.stringify({
@@ -147,12 +136,6 @@ async function requestFollow() {
   sessionId = data.session;
   expiresAt = null;
   arrivalNotified = false;
-  els.session.value = sessionId;
-
-  const u = new URL(location.href);
-  u.searchParams.set("api", encodeURIComponent(api));
-  u.searchParams.set("session", encodeURIComponent(sessionId));
-  history.replaceState(null, "", u.toString());
 
   setText(els.status, "En attente d'acceptation…");
   setState("", "En attente");
@@ -168,10 +151,8 @@ els.btnRequest.addEventListener("click", () => requestFollow().catch(e => {
 }));
 
 async function pollState(){
-  const api = els.api.value.trim().replace(/\/+$/,"");
-  if(!api || !sessionId) return;
-
-  const data = await apiFetchJson(api + "/client/state?session=" + encodeURIComponent(sessionId));
+  if(!sessionId) return;
+  const data = await apiFetchJson(API_BASE + "/client/state?session=" + encodeURIComponent(sessionId));
 
   if(data.status === "pending") {
     setText(els.status, "En attente d'acceptation…");
@@ -224,17 +205,4 @@ function stopAll(){
   watchId = null;
 }
 
-function hydrateFromUrl(){
-  const api = els.api.value.trim().replace(/\/+$/,"");
-  const sess = els.session.value.trim();
-  if(api && sess) {
-    sessionId = sess;
-    startWatchPosition().catch(()=>{});
-    startPolling();
-    setText(els.status, "Connexion…");
-    setState("", "Connexion");
-  }
-}
-
 initMap();
-hydrateFromUrl();
