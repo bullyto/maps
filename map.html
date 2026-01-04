@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f1216" />
+  <title>Carte</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    #map{height: calc(100vh - 64px - 64px); width: 100%; border-radius: 18px; overflow:hidden;}
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="dot" aria-hidden="true"></div>
+      <div class="title">
+        <div class="h1">Apéro de Nuit</div>
+        <div class="h2">Carte (démo)</div>
+      </div>
+    </div>
+    <a class="btn ghost" href="./index.html">Retour</a>
+  </header>
+
+  <main class="container">
+    <section class="card">
+      <div class="row">
+        <div>
+          <div class="label">Démo</div>
+          <div class="value">Marqueurs client + livreur</div>
+        </div>
+        <div class="right">
+          <button id="btnCenter" class="btn">Recentrer</button>
+        </div>
+      </div>
+      <div class="sep"></div>
+      <div id="map"></div>
+      <p class="hint">Remplace les positions par tes positions live (backend WS/SSE) quand tu intégreras.</p>
+    </section>
+  </main>
+
+  <footer class="legal">
+    L’abus d’alcool est dangereux pour la santé, à consommer avec modération.
+  </footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map', { zoomControl: true }).setView([42.6887, 2.8948], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+
+    // Demo positions (Perpignan)
+    let driver = [42.6887, 2.8948];
+    let client = [42.6995, 2.9050];
+
+    const driverMarker = L.circleMarker(driver, { radius: 9 }).addTo(map).bindPopup("Livreur");
+    const clientMarker = L.circleMarker(client, { radius: 9 }).addTo(map).bindPopup("Client");
+
+    const link = L.polyline([driver, client], { weight: 6, opacity: 0.35 }).addTo(map);
+
+    function center(){
+      const b = L.latLngBounds([driver, client]);
+      map.fitBounds(b.pad(0.25));
+    }
+    document.getElementById('btnCenter').addEventListener('click', center);
+    center();
+
+    // Simule mouvement livreur
+    setInterval(() => {
+      driver = [driver[0] + (Math.random()-0.5)*0.0012, driver[1] + (Math.random()-0.5)*0.0012];
+      driverMarker.setLatLng(driver);
+      link.setLatLngs([driver, client]);
+    }, 2500);
+  </script>
+</body>
+</html>
