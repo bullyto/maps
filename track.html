@@ -1,319 +1,158 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0f1216" />
-  <title>Suivi GPS — Track</title>
-  <link rel="preconnect" href="https://unpkg.com" crossorigin>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <style>
-    :root{
-      --bg:#0f1216; --card:#141922; --muted:#9aa4b2; --txt:#e8eef7;
-      --line:rgba(255,255,255,.10); --ok:#27d17f; --bad:#ff4d4d;
-      --btn:#1f2a3a;
-    }
-    *{box-sizing:border-box}
-    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--txt)}
-    header{
-      position:sticky;top:0;z-index:5;
-      padding:12px 14px;background:rgba(15,18,22,.88);backdrop-filter: blur(10px);
-      border-bottom:1px solid var(--line);
-    }
-    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-    .brand{font-weight:800;letter-spacing:.2px}
-    .pill{padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:rgba(255,255,255,.04);font-size:12px;color:var(--muted)}
-    .pill b{color:var(--txt)}
-    .wrap{padding:12px 14px;display:grid;gap:12px}
-    .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px}
-    label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}
-    input{
-      width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--line);
-      background:rgba(255,255,255,.03);color:var(--txt);outline:none
-    }
-    input::placeholder{color:rgba(154,164,178,.65)}
-    button{
-      cursor:pointer;border:1px solid var(--line);background:var(--btn);color:var(--txt);
-      padding:10px 12px;border-radius:12px;font-weight:700
-    }
-    button:hover{filter:brightness(1.08)}
-    .btn2{background:rgba(255,255,255,.06)}
-    #map{height:calc(100vh - 210px);min-height:320px;border-radius:18px;overflow:hidden;border:1px solid var(--line)}
-    .status{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-    .dot{width:10px;height:10px;border-radius:999px;background:var(--bad);box-shadow:0 0 0 0 rgba(255,77,77,.5)}
-    .dot.ok{background:var(--ok);box-shadow:0 0 0 0 rgba(39,209,127,.55)}
-    .small{font-size:12px;color:var(--muted)}
-    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
-    a{color:#7ab7ff}
-    .grid2{display:grid;grid-template-columns:1fr;gap:10px}
-    @media (min-width:900px){
-      #map{height:calc(100vh - 170px)}
-      .grid2{grid-template-columns:1fr 1fr}
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Suivi GPS — Track</title>
+
+<style>
+body{
+  margin:0;
+  font-family:system-ui,-apple-system,Segoe UI,Roboto;
+  background:#0e0f13;
+  color:#fff
+}
+.container{
+  max-width:720px;
+  margin:auto;
+  padding:16px
+}
+h1{margin:0 0 12px}
+.badge{
+  display:inline-block;
+  padding:6px 10px;
+  border-radius:999px;
+  background:#1c1f2a;
+  margin-right:6px;
+  font-size:13px
+}
+.card{
+  background:#151823;
+  border-radius:16px;
+  padding:16px;
+  margin-top:12px
+}
+label{
+  display:block;
+  font-size:13px;
+  opacity:.8;
+  margin-bottom:6px
+}
+input{
+  width:100%;
+  padding:12px;
+  border-radius:10px;
+  border:none;
+  background:#0f1220;
+  color:#fff;
+  margin-bottom:12px
+}
+button{
+  padding:12px 16px;
+  border-radius:12px;
+  border:none;
+  background:#2f6bff;
+  color:#fff;
+  font-size:16px;
+  margin-right:8px
+}
+button.secondary{background:#2a2e40}
+.status{margin-top:10px;font-size:14px}
+.red{color:#ff4d4d}
+.green{color:#4dff88}
+.small{font-size:12px;opacity:.7}
+</style>
 </head>
+
 <body>
-<header>
-  <div class="row">
-    <div class="brand">Suivi GPS</div>
-    <div class="pill">Token: <b id="pillToken">—</b></div>
-    <div class="pill">API: <b id="pillApi">—</b></div>
-    <div class="pill">Dernière maj: <b id="pillTs">—</b></div>
-  </div>
-</header>
+<div class="container">
+  <h1>Suivi GPS</h1>
 
-<div class="wrap">
+  <div>
+    <span class="badge" id="apiBadge">API: —</span>
+    <span class="badge" id="tokenBadge">Token: —</span>
+  </div>
+
+  <div class="small" id="last">Dernière maj: —</div>
+
   <div class="card">
-    <div class="grid2">
-      <div>
-        <label>URL de ton Worker (base) — ex: https://and-suivi.aper...workers.dev</label>
-        <input id="apiBase" placeholder="https://xxxx.workers.dev" />
-      </div>
-      <div>
-        <label>Token (celui que ton worker t'a renvoyé)</label>
-        <input id="token" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
-      </div>
-    </div>
-    <div class="row" style="margin-top:10px">
-      <button id="btnStart">Démarrer</button>
-      <button id="btnStop" class="btn2">Stop</button>
-      <button id="btnCopy" class="btn2">Copier le lien</button>
-      <span class="small">Astuce: tu peux aussi ouvrir <span class="mono">track.html?api=...&token=...</span></span>
-    </div>
-    <div class="status" style="margin-top:10px">
-      <span class="dot" id="dot"></span>
-      <span class="small" id="statusTxt">En attente…</span>
-      <span class="small mono" id="statusMore"></span>
-    </div>
-  </div>
+    <label>URL de ton Worker</label>
+    <input id="apiInput" placeholder="https://and-suivi.apero-nuit-du-66.workers.dev">
 
-  <div id="map"></div>
+    <label>Token</label>
+    <input id="tokenInput" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
 
-  <div class="card small">
-    <div style="margin-bottom:6px"><b>Si ça ne bouge pas :</b></div>
-    <ol style="margin:0;padding-left:18px;display:grid;gap:6px">
-      <li>Vérifie que ton Worker renvoie bien du CORS (Access-Control-Allow-Origin: <span class="mono">*</span>).</li>
-      <li>Vérifie que ton téléphone envoie la position (page “suivi” ouverte, GPS autorisé).</li>
-      <li>Si ton API n’a pas les mêmes routes, tu peux ajouter un <span class="mono">endpoint</span> qui renvoie la dernière position en JSON (lat/lng).</li>
-    </ol>
+    <button id="startBtn">Démarrer</button>
+    <button class="secondary" id="stopBtn">Stop</button>
+    <button class="secondary" id="copyBtn">Copier le lien</button>
+
+    <div class="status" id="status">
+      <span class="red">●</span> En attente…
+    </div>
   </div>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-(() => {
-  const $ = (id) => document.getElementById(id);
+const qs = new URLSearchParams(location.search);
 
-  // --- Helpers
-  const qs = new URLSearchParams(location.search);
-  const ls = (k, v) => v === undefined ? localStorage.getItem(k) : localStorage.setItem(k, v);
+const apiInput = document.getElementById("apiInput");
+const tokenInput = document.getElementById("tokenInput");
+const apiBadge = document.getElementById("apiBadge");
+const tokenBadge = document.getElementById("tokenBadge");
+const statusEl = document.getElementById("status");
+const lastEl = document.getElementById("last");
 
-  const fmtTs = (ms) => {
-    if (!ms) return "—";
-    const d = new Date(ms);
-    const pad = (n) => String(n).padStart(2,"0");
-    return pad(d.getHours())+":"+pad(d.getMinutes())+":"+pad(d.getSeconds());
-  };
+if(qs.get("api")){
+  apiInput.value = qs.get("api");
+  apiBadge.textContent = "API: " + qs.get("api");
+}
+if(qs.get("token")){
+  tokenInput.value = qs.get("token");
+  tokenBadge.textContent = "Token: " + qs.get("token");
+}
 
-  function normalizeBase(u){
-    if(!u) return "";
-    u = u.trim();
-    // allow pasted full endpoint; keep origin
-    try{
-      const url = new URL(u);
-      return url.origin;
-    }catch(_){
-      return u.replace(/\/+$/,"");
-    }
+let watchId = null;
+
+document.getElementById("startBtn").onclick = () => {
+  if(!apiInput.value || !tokenInput.value){
+    alert("API et token requis");
+    return;
   }
 
-  function setStatus(ok, txt, more=""){
-    $("dot").classList.toggle("ok", !!ok);
-    $("statusTxt").textContent = txt;
-    $("statusMore").textContent = more || "";
-  }
+  apiBadge.textContent = "API: " + apiInput.value;
+  tokenBadge.textContent = "Token: " + tokenInput.value;
 
-  // --- Map
-  const map = L.map("map", { zoomControl:true, preferCanvas:true });
-  const start = [42.697, 2.895]; // Perpignan-ish default
-  map.setView(start, 12);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: "© OpenStreetMap"
-  }).addTo(map);
+  watchId = navigator.geolocation.watchPosition(pos => {
+    fetch(apiInput.value + "/track", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        token: tokenInput.value,
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+        ts: Date.now()
+      })
+    });
 
-  const driverIcon = L.divIcon({
-    className: "",
-    html: '<div style="width:14px;height:14px;border-radius:999px;background:#27d17f;box-shadow:0 0 0 6px rgba(39,209,127,.15),0 0 18px rgba(39,209,127,.35)"></div>',
-    iconSize: [14,14],
-    iconAnchor:[7,7]
-  });
+    statusEl.innerHTML = '<span class="green">●</span> Position envoyée';
+    lastEl.textContent = "Dernière maj: " + new Date().toLocaleTimeString();
+  }, err => {
+    statusEl.innerHTML = '<span class="red">●</span> Erreur GPS';
+  }, { enableHighAccuracy:true });
+};
 
-  const marker = L.marker(start, { icon: driverIcon }).addTo(map);
-  const accCircle = L.circle(start, { radius: 0 }).addTo(map);
+document.getElementById("stopBtn").onclick = () => {
+  if(watchId) navigator.geolocation.clearWatch(watchId);
+  statusEl.innerHTML = '<span class="red">●</span> Arrêté';
+};
 
-  let timer = null;
-  let lastGood = 0;
-
-  // --- Try multiple endpoints (robust)
-  function candidateUrls(base, token){
-    const b = normalizeBase(base);
-    const t = encodeURIComponent(token);
-    // Add your own patterns here if needed
-    return [
-      `${b}/track?token=${t}`,
-      `${b}/tracking?token=${t}`,
-      `${b}/last?token=${t}`,
-      `${b}/loc?token=${t}`,
-      `${b}/location?token=${t}`,
-      `${b}/api/track?token=${t}`,
-      `${b}/api/last?token=${t}`,
-      `${b}/api/loc?token=${t}`,
-      `${b}/api/location?token=${t}`,
-      `${b}/api/position?token=${t}`,
-      `${b}/position?token=${t}`,
-      `${b}/events/last?token=${t}`,
-      `${b}/clicks/last?token=${t}`
-    ];
-  }
-
-  function extractLatLng(payload){
-    // Accept many shapes
-    const pick = (o) => {
-      if (!o || typeof o !== "object") return null;
-      const lat = o.lat ?? o.latitude ?? o.Lat ?? o.Latitude;
-      const lng = o.lng ?? o.lon ?? o.long ?? o.longitude ?? o.Lng ?? o.Longitude;
-      if (typeof lat === "number" && typeof lng === "number") return {lat, lng, ts: o.ts ?? o.time ?? o.timestamp ?? o.created_at ?? o.createdAt ?? null, acc: o.acc ?? o.accuracy ?? null};
-      if (typeof lat === "string" && typeof lng === "string" && !isNaN(Number(lat)) && !isNaN(Number(lng)))
-        return {lat:Number(lat), lng:Number(lng), ts: o.ts ?? o.time ?? o.timestamp ?? null, acc: o.acc ?? o.accuracy ?? null};
-      return null;
-    };
-
-    // direct object
-    let got = pick(payload);
-    if (got) return got;
-
-    // nested common keys
-    for (const k of ["data","last","position","location","result"]){
-      got = pick(payload?.[k]);
-      if (got) return got;
-    }
-
-    // rows array
-    const arr = payload?.rows ?? payload?.results ?? payload?.items ?? (Array.isArray(payload) ? payload : null);
-    if (Array.isArray(arr) && arr.length){
-      got = pick(arr[0]) || pick(arr[arr.length-1]);
-      if (got) return got;
-    }
-    return null;
-  }
-
-  async function fetchLatest(base, token){
-    const urls = candidateUrls(base, token);
-    let lastErr = "";
-    for (const url of urls){
-      try{
-        const res = await fetch(url, { method:"GET", headers:{ "accept":"application/json,text/plain,*/*" } });
-        if (!res.ok) { lastErr = `${res.status} ${res.statusText}`; continue; }
-        const txt = await res.text();
-        let data = null;
-        try{ data = JSON.parse(txt); } catch(_){ data = { raw: txt }; }
-        const pos = extractLatLng(data);
-        if (pos) return { ok:true, pos, urlTried:url };
-        // If endpoint already returns {token,url} then follow "url"
-        if (data && typeof data === "object" && data.url && typeof data.url === "string"){
-          // Try fetching the provided url once
-          try{
-            const r2 = await fetch(data.url);
-            if (r2.ok){
-              const t2 = await r2.text();
-              let d2=null; try{ d2 = JSON.parse(t2);} catch(_){ d2={raw:t2}; }
-              const p2 = extractLatLng(d2);
-              if (p2) return { ok:true, pos:p2, urlTried:data.url };
-            }
-          }catch(e2){ /* ignore */ }
-        }
-        lastErr = "JSON reçu mais pas de lat/lng";
-      }catch(e){
-        lastErr = e?.message || String(e);
-        continue;
-      }
-    }
-    return { ok:false, error:lastErr || "Aucun endpoint n'a répondu" };
-  }
-
-  function updatePills(base, token, ts){
-    $("pillApi").textContent = base ? normalizeBase(base) : "—";
-    $("pillToken").textContent = token || "—";
-    $("pillTs").textContent = ts ? fmtTs(ts) : "—";
-  }
-
-  async function tick(){
-    const base = $("apiBase").value.trim();
-    const token = $("token").value.trim();
-    updatePills(base, token, lastGood || 0);
-    if (!base || !token){
-      setStatus(false, "Renseigne l'URL du Worker + le token.");
-      return;
-    }
-
-    setStatus(true, "Recherche de la dernière position…");
-    const r = await fetchLatest(base, token);
-    if (!r.ok){
-      setStatus(false, "Impossible de récupérer la position.", r.error || "");
-      return;
-    }
-
-    const { lat, lng, ts, acc } = r.pos;
-    lastGood = ts ? (typeof ts === "number" ? (ts < 10_000_000_000 ? ts*1000 : ts) : Date.now()) : Date.now();
-    marker.setLatLng([lat,lng]);
-    const radius = (typeof acc === "number" && acc > 0) ? acc : 0;
-    accCircle.setLatLng([lat,lng]);
-    accCircle.setRadius(radius);
-    map.setView([lat,lng], Math.max(map.getZoom(), 16), { animate:true });
-    setStatus(true, "OK — position reçue", r.urlTried);
-    updatePills(base, token, lastGood);
-  }
-
-  function start(){
-    stop();
-    const base = $("apiBase").value.trim();
-    const token = $("token").value.trim();
-    if (base) ls("track_api", base);
-    if (token) ls("track_token", token);
-    tick();
-    timer = setInterval(tick, 3000);
-  }
-  function stop(){
-    if (timer){ clearInterval(timer); timer = null; }
-    setStatus(false, "Stop.");
-  }
-
-  function copyLink(){
-    const base = $("apiBase").value.trim();
-    const token = $("token").value.trim();
-    const url = new URL(location.href);
-    url.searchParams.set("api", base);
-    url.searchParams.set("token", token);
-    navigator.clipboard?.writeText(url.toString()).then(
-      () => setStatus(true, "Lien copié ✅", url.toString()),
-      () => setStatus(true, "Copie impossible (copie manuelle).", url.toString())
-    );
-  }
-
-  // Prefill from URL or localStorage
-  const apiFromUrl = qs.get("api") || qs.get("base") || "";
-  const tokenFromUrl = qs.get("token") || qs.get("t") || "";
-  $("apiBase").value = apiFromUrl || ls("track_api") || "";
-  $("token").value = tokenFromUrl || ls("track_token") || "";
-
-  $("btnStart").addEventListener("click", start);
-  $("btnStop").addEventListener("click", stop);
-  $("btnCopy").addEventListener("click", copyLink);
-
-  updatePills($("apiBase").value.trim(), $("token").value.trim(), 0);
-  setStatus(false, "Clique sur “Démarrer”.");
-})();
+document.getElementById("copyBtn").onclick = () => {
+  const url = location.origin + location.pathname +
+    "?api=" + encodeURIComponent(apiInput.value) +
+    "&token=" + encodeURIComponent(tokenInput.value);
+  navigator.clipboard.writeText(url);
+  alert("Lien copié");
+};
 </script>
 </body>
 </html>
