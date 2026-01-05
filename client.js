@@ -99,10 +99,20 @@ async function startPolling() {
     setText(els.stateText, st === "pending" ? "En attente" : st === "active" ? "Actif" : st === "denied" ? "Refusé" : "Terminé");
     setText(els.countdown, st === "active" ? fmtRemaining(state.expires_at) : "—");
 
-    // IMPORTANT: si pas actif -> on NE doit jamais afficher le livreur
+    // IMPORTANT:
+    // - pending: on continue de poll (sinon le client reste bloqué sur "En attente" même après accept)
+    // - active: on affiche le livreur
+    // - denied/expired: on stoppe tout
+    if (st === "pending") {
+      els.statusBadge.textContent = "En attente d’acceptation";
+      setButtonState("pending");
+      // On n'affiche jamais le livreur en pending
+      if (markerDriver) { map.removeLayer(markerDriver); markerDriver = null; }
+      return;
+    }
     if (st !== "active") {
-      els.statusBadge.textContent = st === "pending" ? "En attente d’acceptation" : "Accès terminé";
-      setButtonState(st === "pending" ? "pending" : "expired");
+      els.statusBadge.textContent = st === "denied" ? "Refusé" : "Accès terminé";
+      setButtonState("expired");
       stopAllTrackingUI();
       return;
     }

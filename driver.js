@@ -30,6 +30,7 @@ const driverToken = getOrCreateDriverToken();
 let map, markerDriver;
 let watchId = null;
 let lastDriverLatLng = null;
+let didCenterOnce = false;
 
 const markers = new Map(); // session -> marker
 const sessionData = new Map(); // session -> row (pending/active)
@@ -48,6 +49,12 @@ function initMap() {
 
   markerDriver = L.marker([42.6887, 2.8948], { icon: ICON_DRIVER }).addTo(map);
 }
+
+function updateDriverMarker(lat, lng) {
+  lastDriverLatLng = [lat, lng];
+  if (markerDriver) markerDriver.setLatLng(lastDriverLatLng);
+}
+
 
 function showPinGate() {
   els.overlay.style.display = "flex";
@@ -115,6 +122,11 @@ async function startDriverGps() {
 
     // Met à jour la carte
     updateDriverMarker(lat, lng);
+    // Premier fix: on recentre une fois
+    if (!didCenterOnce) {
+      didCenterOnce = true;
+      try { map.setView([lat, lng], 15); } catch {}
+    }
 
     try {
       await apiFetchJson(`${API_BASE}/driver/update`, {
