@@ -14,6 +14,7 @@ const els = {
   pendingCount: document.getElementById("pendingCount"),
 
   btnGps: document.getElementById("btnGps"),
+  btnGpsStop: document.getElementById("btnGpsStop"),
   btnRecenter: document.getElementById("btnRecenter"),
 
   listPending: document.getElementById("listPending"),
@@ -102,8 +103,8 @@ async function startDriverGps() {
   if (watchId != null) return;
 
   setText(els.gpsState, "Actif");
-  els.btnGps.textContent = "GPS actif";
-  els.btnGps.disabled = true;
+  if (els.btnGps) { els.btnGps.disabled = true; els.btnGps.textContent = "GPS ON"; }
+  if (els.btnGpsStop) { els.btnGpsStop.disabled = false; }
 
   watchId = navigator.geolocation.watchPosition(async (pos) => {
     const lat = pos.coords.latitude;
@@ -112,16 +113,18 @@ async function startDriverGps() {
     const speed = pos.coords.speed ?? null;
     const heading = pos.coords.heading ?? null;
 
-    lastDriverLatLng = [lat, lng];
-    markerDriver.setLatLng(lastDriverLatLng);
+    // Met à jour la carte
+    updateDriverMarker(lat, lng);
 
-    // Envoi au worker
     try {
       await apiFetchJson(`${API_BASE}/driver/update`, {
         method: "POST",
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({
           driver_token: driverToken,
-          lat, lng, acc,
+          driverToken,
+          lat, lng,
+          acc,
           speed, heading,
           battery: null,
           ts: Date.now(),
@@ -133,9 +136,20 @@ async function startDriverGps() {
     }
   }, () => {
     setText(els.gpsState, "Refusé");
-    els.btnGps.disabled = false;
-    els.btnGps.textContent = "Activer GPS livreur";
+    watchId = null;
+    if (els.btnGps) { els.btnGps.disabled = false; els.btnGps.textContent = "Activer GPS"; }
+    if (els.btnGpsStop) { els.btnGpsStop.disabled = true; }
   }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+}
+
+function stopDriverGps() {
+  try {
+    if (watchId != null) navigator.geolocation.clearWatch(watchId);
+  } catch {}
+  watchId = null;
+  setText(els.gpsState, "Inactif");
+  if (els.btnGps) { els.btnGps.disabled = false; els.btnGps.textContent = "Activer GPS"; }
+  if (els.btnGpsStop) { els.btnGpsStop.disabled = true; }
 }
 
 function minutesRemaining(expiresTs) {
@@ -379,6 +393,7 @@ function bootAfterGate() {
   setText(els.lastUpdate, "—");
 
   els.btnGps.addEventListener("click", startDriverGps);
+  if (els.btnGpsStop) els.btnGpsStop.addEventListener("click", stopDriverGps);
   els.btnRecenter.addEventListener("click", recenter);
 
   startDashboardLoop();
