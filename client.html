@@ -1,84 +1,81 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0f1216" />
-  <title>Suivi • Apéro de Nuit</title>
+<title>Suivi de commande</title>
 
-  <link rel="manifest" href="./manifest.webmanifest" />
-  <link rel="icon" href="./icons/icon-192.svg" />
-  <link rel="apple-touch-icon" href="./icons/icon-192.svg" />
-  <link rel="stylesheet" href="./styles.css" />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="stylesheet" href="./style.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <style>
-    #map{height: calc(100vh - 64px - 210px); width:100%; border-radius:18px; overflow:hidden;}
-    .row2{display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between;}
-    .mini{font-size:12px;color:var(--muted)}
-    .badge{display:inline-flex; gap:8px; align-items:center; padding:8px 10px; border-radius:999px; border:1px solid var(--stroke); background: rgba(255,255,255,.04);}
-    .badgeDot{width:10px;height:10px;border-radius:999px;background:var(--warn);}
-    .badgeDot.ok{background:var(--good)}
-    .badgeDot.bad{background:var(--bad)}
-  </style>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <div class="dot" aria-hidden="true"></div>
-      <div class="title">
-        <div class="h1">Suivi de commande</div>
-        <div class="h2">1 bouton • sécurisé • temps réel</div>
+  <div class="container">
+    <div class="topbar">
+      <div class="brand">
+        <span class="dotlive" aria-hidden="true"></span>
+        <div style="min-width:0">
+          <h1>Apéro de Nuit</h1>
+          <p>Suivi de commande • sécurisé • temps réel</p>
+        </div>
       </div>
+      <button id="btnBack" class="btn secondary">Retour</button>
     </div>
-    <a class="btn ghost" href="./index.html">Retour</a>
-  </header>
 
-  <main class="container">
-    <section class="card">
+    <div class="card">
       <div class="row">
         <div>
-          <div class="label">Statut</div>
-          <div id="status" class="value">Prêt</div>
+          <div class="small">Statut</div>
+          <h2 id="statusTitle" style="margin-top:2px">Prêt</h2>
         </div>
-        <div class="right">
-          <div class="badge"><span id="dot" class="badgeDot"></span><span id="pill">En attente</span></div>
-        </div>
+        <div id="statusPill" class="pill" data-status="expired">—</div>
       </div>
 
-      <div class="sep"></div>
+      <div class="field">
+        <label>Ton nom (ce que le livreur verra)</label>
+        <input id="clientName" maxlength="24" placeholder="Ex: Lucas" autocomplete="nickname">
+      </div>
 
-      <button id="btnRequest" class="btn primary" style="width:100%;padding:16px 18px;font-size:16px">
-        Demander le suivi du livreur
-      </button>
+      <div style="margin-top:12px" class="row">
+        <button id="btnRequest" class="btn" style="flex:1">Suivre ma commande</button>
+      </div>
 
-      <p class="hint">
-        Tu dois accepter la géolocalisation. Sinon, pas de suivi (sécurité + précision).
+      <p class="small" id="hint" style="margin-top:10px">
+        1) Tu partages ta position (obligatoire). 2) Le livreur accepte/refuse. 3) Suivi en direct pendant <b>30 min max</b>.
       </p>
-    </section>
+    </div>
 
-    <section class="card">
-      <div class="row2">
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
         <div>
-          <div class="label">Carte</div>
-          <div class="mini" id="meta">—</div>
+          <h2 style="margin-bottom:4px">Carte</h2>
+          <div class="small">Ton point (vert) + livreur (bleu) quand c'est actif.</div>
         </div>
-        <div class="right">
-          <button id="btnRecenter" class="btn">Recentrer</button>
-          <button id="btnNotif" class="btn ghost">Notif</button>
+        <div class="row">
+          <button id="btnCenter" class="btn secondary">Recentrer</button>
         </div>
       </div>
-      <div class="sep"></div>
-      <div id="map"></div>
-      <p class="hint" id="countdown"></p>
-    </section>
-  </main>
+      <div class="mapWrap"><div id="map"></div></div>
+      <div class="small" id="footerInfo" style="margin-top:10px">—</div>
+    </div>
 
-  <footer class="legal">
-    L’abus d’alcool est dangereux pour la santé, à consommer avec modération.
-  </footer>
+    <div class="card">
+      <h2>Confiance & confidentialité</h2>
+      <ul class="small" style="margin:10px 0 0; padding-left:18px">
+        <li>Les clients ne se voient jamais entre eux.</li>
+        <li>Tu vois uniquement la position du livreur, jamais son itinéraire complet.</li>
+        <li>Le livreur peut couper l’accès à tout moment.</li>
+        <li>Le suivi s’arrête automatiquement à la fin du temps imparti.</li>
+      </ul>
+    </div>
+  </div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script type="module" src="./client.js"></script>
+  <div class="legal">L’abus d’alcool est dangereux pour la santé, à consommer avec modération.</div>
+
+<script type="module" src="./client.js"></script>
 </body>
 </html>

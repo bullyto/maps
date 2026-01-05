@@ -1,23 +1,20 @@
 {
-  "name": "Apéro de Nuit • Suivi",
+  "name": "Suivi de commande",
   "short_name": "Suivi ADN",
-  "start_url": "./index.html",
+  "start_url": "./",
   "display": "standalone",
-  "background_color": "#0f1216",
-  "theme_color": "#0f1216",
-  "description": "Suivi de livraison Apéro de Nuit (client/livreur).",
+  "background_color": "#0b1c2d",
+  "theme_color": "#0b1c2d",
   "icons": [
     {
-      "src": "./icons/icon-192.svg",
+      "src": "./icon-192.png",
       "sizes": "192x192",
-      "type": "image/svg+xml",
-      "purpose": "any"
+      "type": "image/png"
     },
     {
-      "src": "./icons/icon-512.svg",
+      "src": "./icon-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
-      "purpose": "any"
+      "type": "image/png"
     }
   ]
 }
