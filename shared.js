@@ -22,6 +22,15 @@ export function safeJsonParse(txt) {
 }
 
 export async function apiFetchJson(url, opts={}) {
+  // Auto JSON header if body is provided (fix: requests were missing content-type)
+  if (opts && opts.body != null) {
+    const h = new Headers(opts.headers || {});
+    if (!h.has("content-type")) {
+      // Most calls send JSON.stringify(...)
+      h.set("content-type", "application/json");
+    }
+    opts.headers = h;
+  }
   const r = await fetch(url, opts);
   const txt = await r.text();
   const data = safeJsonParse(txt);
