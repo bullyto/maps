@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bodyCyan" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#38e0ff"/>
+      <stop offset="1" stop-color="#0fb6cf"/>
+    </linearGradient>
+    <linearGradient id="window" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c9f6ff"/>
+      <stop offset="1" stop-color="#7fd8e6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- wheels -->
+  <circle cx="18" cy="50" r="6" fill="#0b1020"/>
+  <circle cx="46" cy="50" r="6" fill="#0b1020"/>
+  <circle cx="18" cy="50" r="2.2" fill="#7f8db8"/>
+  <circle cx="46" cy="50" r="2.2" fill="#7f8db8"/>
+
+  <!-- body -->
+  <path d="M8 44
+           L10 36
+           C11 32, 15 30, 20 30
+           H34
+           C40 30, 46 33, 50 36
+           L56 38
+           V44
+           C56 46, 54 48, 52 48
+           H12
+           C10 48, 8 46, 8 44Z"
+        fill="url(#bodyCyan)"/>
+
+  <!-- roof / cabin -->
+  <path d="M14 30
+           V24
+           C14 21, 16 19, 19 19
+           H33
+           C36 19, 39 20, 41 22
+           L48 28
+           V30Z"
+        fill="url(#bodyCyan)"/>
+
+  <!-- windows -->
+  <path d="M17 28
+           V24
+           C17 23, 18 22, 19 22
+           H30
+           V28Z"
+        fill="url(#window)"/>
+  <path d="M31 28
+           V22
+           H33
+           C35 22, 37 23, 38 24
+           L42 28Z"
+        fill="url(#window)"/>
+
+  <!-- door line -->
+  <rect x="29.5" y="30" width="1" height="14" fill="#0b4aa6" opacity="0.5"/>
+
+  <!-- headlight -->
+  <circle cx="55" cy="40" r="2" fill="#ffe08a"/>
+
+  <!-- ground clearance -->
+  <rect x="10" y="46" width="44" height="2" rx="1" fill="#0a1c3f" opacity="0.6"/>
+</svg>
