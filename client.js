@@ -12,6 +12,34 @@ const els = {
   btnNotif: document.getElementById("btnNotif"),
 };
 
+function setRequestBtnMode(mode){
+  // mode: 'ready' | 'pending' | 'active'
+  if(!els.btnRequest) return;
+  if(mode === 'pending'){
+    els.btnRequest.disabled = true;
+    els.btnRequest.textContent = "Demande envoyée…";
+    els.btnRequest.classList.add("disabled");
+    return;
+  }
+  if(mode === 'active'){
+    els.btnRequest.disabled = true;
+    els.btnRequest.textContent = "Suivi déjà actif";
+    els.btnRequest.classList.add("disabled");
+    return;
+  }
+  els.btnRequest.disabled = false;
+  els.btnRequest.textContent = "Demander le suivi du livreur";
+  els.btnRequest.classList.remove("disabled");
+}
+
+function syncRequestBtnWithStatus(status){
+  // statuses from API: pending | approved | denied | expired | ended | idle
+  if(status === "pending") return setRequestBtnMode("pending");
+  if(status === "approved") return setRequestBtnMode("active");
+  return setRequestBtnMode("ready");
+}
+
+
 const clientId = getOrCreateClientId();
 
 let map, meMarker, driverMarker, link;
@@ -102,6 +130,7 @@ async function startWatchPosition() {
 async function requestFollow() {
   setText(els.status, "Demande…");
   setState("", "Demande…");
+  setRequestBtnMode("pending");
 
   // GPS obligatoire
   const pos = await new Promise((resolve, reject) => {
@@ -153,6 +182,7 @@ els.btnRequest.addEventListener("click", () => requestFollow().catch(e => {
 async function pollState(){
   if(!sessionId) return;
   const data = await apiFetchJson(API_BASE + "/client/state?session=" + encodeURIComponent(sessionId));
+  syncRequestBtnWithStatus(data.status);
 
   if(data.status === "pending") {
     setText(els.status, "En attente d'acceptation…");
@@ -160,11 +190,6 @@ async function pollState(){
   } else if(data.status === "denied") {
     setText(els.status, "Refusé");
     setState("bad", "Refusé");
-    stopAll();
-    return;
-  } else if(data.status === "ended") {
-    setText(els.status, "Terminé");
-    setState("bad", "Terminé");
     stopAll();
     return;
   } else if(data.status === "expired") {
@@ -208,6 +233,7 @@ function stopAll(){
   pollTimer = null;
   if(watchId) navigator.geolocation.clearWatch(watchId);
   watchId = null;
+  setRequestBtnMode("ready");
 }
 
 initMap();

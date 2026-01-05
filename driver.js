@@ -105,7 +105,7 @@ async function reverseGeocode(lat, lng) {
 
 async function pollRequests() {
   const data = await apiFetchJson(API_BASE + "/driver/dashboard?driver_token=" + encodeURIComponent(driverToken));
-  const sessions = (data.sessions && Array.isArray(data.sessions)) ? data.sessions : ([...(data.pending||[]), ...(data.active||[])]);
+  const sessions = data.sessions || [];
 
   clientsLayer.clearLayers();
   for (const s of sessions) {
@@ -147,9 +147,9 @@ async function pollRequests() {
           <div>
             <div class="label">Demande</div>
             <div class="value mono">${shortToken(s.session)}</div>
-            <div class="mini">${addr ? addr : "Adresse…"} • Maj: ${fmtAgo(Number(s.client_ts||s.created_ts)||0)}</div>
+            <div class="mini">${addr ? addr : "Adresse…"} • Maj: ${fmtAgo(Number(s.client_ts)||0)}</div>
           </div>
-          <div class="tag"></div>
+          <div class="tag">${s.distance_m != null ? Math.round(s.distance_m) + " m" : ""}</div>
         </div>
 
         <div class="btnRow">
