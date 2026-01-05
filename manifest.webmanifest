@@ -1,8 +1,7 @@
 {
-  "name": "ADN66 • Suivi Livreur",
-  "short_name": "ADN66 Livreur",
+  "name": "Apéro de Nuit 66 • Suivi Livreur",
+  "short_name": "AND-Suivi",
   "start_url": "./driver.html",
-  "scope": "./",
   "display": "standalone",
   "background_color": "#0b1c2d",
   "theme_color": "#0b1c2d",

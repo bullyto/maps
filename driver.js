@@ -1,6 +1,10 @@
 import { API_BASE, MAX_MINUTES, DRIVER_PIN } from "./config.js";
 import { apiFetchJson, setText, fmtAgo, getOrCreateDriverToken } from "./shared.js";
 
+// Temps d'acceptation par défaut quand on clique "Accepter" (évite variable manquante)
+const DEFAULT_ACCEPT_MINUTES = MAX_MINUTES;
+
+
 const els = {
   overlay: document.getElementById("pinOverlay"),
   pinInput: document.getElementById("pinInput"),
