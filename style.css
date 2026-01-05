@@ -200,3 +200,8 @@ a{color:inherit;text-decoration:none}
 }
 .modal h2{margin:0 0 6px;font-size:20px}
 .modal p{margin:0 0 12px; opacity:.9}
+
+
+.btnSmall{padding:10px 12px;font-size:14px;border-radius:14px}
+.btnDanger{border-color:rgba(255,90,90,.35);background:rgba(255,90,90,.10)}
+.btnDanger:disabled{opacity:.45}

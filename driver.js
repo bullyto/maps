@@ -206,12 +206,12 @@ function actionRow(row, kind) {
   };
 
   btnPlus.onclick = async () => {
-    const cur = minutesRemaining(row.expires_ts) ?? 0;
+    const cur = (row.status === "pending" ? DEFAULT_ACCEPT_MINUTES : (minutesRemaining(row.expires_ts) ?? DEFAULT_ACCEPT_MINUTES));
     const next = Math.min(MAX_MINUTES, Math.max(1, cur + 5));
     try { await decide(row.session, "accept", next); } finally {}
   };
   btnMinus.onclick = async () => {
-    const cur = minutesRemaining(row.expires_ts) ?? 0;
+    const cur = (row.status === "pending" ? DEFAULT_ACCEPT_MINUTES : (minutesRemaining(row.expires_ts) ?? DEFAULT_ACCEPT_MINUTES));
     const next = Math.min(MAX_MINUTES, Math.max(1, cur - 5));
     try { await decide(row.session, "accept", next); } finally {}
   };
@@ -294,12 +294,12 @@ function openClientPopup(row) {
   bA.onclick = async () => { try { await decide(row.session,"accept",MAX_MINUTES); } finally {} };
   bR.onclick = async () => { try { await decide(row.session,"deny"); } finally {} };
   bP.onclick = async () => {
-    const cur = minutesRemaining(row.expires_ts) ?? 0;
+    const cur = (row.status === "pending" ? DEFAULT_ACCEPT_MINUTES : (minutesRemaining(row.expires_ts) ?? DEFAULT_ACCEPT_MINUTES));
     const next = Math.min(MAX_MINUTES, Math.max(1, cur + 5));
     try { await decide(row.session,"accept",next); } finally {}
   };
   bM.onclick = async () => {
-    const cur = minutesRemaining(row.expires_ts) ?? 0;
+    const cur = (row.status === "pending" ? DEFAULT_ACCEPT_MINUTES : (minutesRemaining(row.expires_ts) ?? DEFAULT_ACCEPT_MINUTES));
     const next = Math.min(MAX_MINUTES, Math.max(1, cur - 5));
     try { await decide(row.session,"accept",next); } finally {}
   };
