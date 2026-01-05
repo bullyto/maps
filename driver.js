@@ -1,267 +1,400 @@
-import { API_BASE, MAX_ACTIVE_MINUTES, DEFAULT_ACTIVE_MINUTES } from "./config.js";
-import { api, qs, qsa, setStatusPill, fmtTime, clamp, sleep } from "./shared.js";
+import { API_BASE, MAX_MINUTES, DRIVER_PIN } from "./config.js";
+import { apiFetchJson, setText, fmtAgo, getOrCreateDriverToken } from "./shared.js";
 
-const LS_DRIVER_TOKEN = "and_driver_token";
-const LS_HIST = "and_hist_v1";
+const els = {
+  overlay: document.getElementById("pinOverlay"),
+  pinInput: document.getElementById("pinInput"),
+  pinBtn: document.getElementById("pinBtn"),
+  pinErr: document.getElementById("pinErr"),
+  app: document.getElementById("app"),
 
-let map, driverMarker;
-let clientMarkers = new Map(); // session -> marker
-let watchingId = null;
+  driverStatus: document.getElementById("driverStatus"),
+  gpsState: document.getElementById("gpsState"),
+  lastUpdate: document.getElementById("lastUpdate"),
+  pendingCount: document.getElementById("pendingCount"),
 
-const driverIcon = L.icon({ iconUrl: "./icons/marker-driver.svg", iconSize:[44,44], iconAnchor:[22,38] });
-const clientIcon = L.icon({ iconUrl: "./icons/marker-client.svg", iconSize:[44,44], iconAnchor:[22,38] });
+  btnGps: document.getElementById("btnGps"),
+  btnRecenter: document.getElementById("btnRecenter"),
 
-function getToken(){
-  let t = localStorage.getItem(LS_DRIVER_TOKEN);
-  if(!t){
-    t = crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(16)+Math.random().toString(16).slice(2));
-    localStorage.setItem(LS_DRIVER_TOKEN, t);
-  }
-  return t;
-}
+  listPending: document.getElementById("listPending"),
+  listActive: document.getElementById("listActive"),
+};
 
-function loadHist(){
-  try { return JSON.parse(localStorage.getItem(LS_HIST) || "{}"); } catch { return {}; }
-}
-function saveHist(h){ localStorage.setItem(LS_HIST, JSON.stringify(h)); }
+const LS = {
+  pinOk: "adn_driver_pin_ok_v1",
+};
 
-function pushHist(clientKey, lat, lng){
-  const h = loadHist();
-  const arr = h[clientKey] || [];
-  arr.unshift({lat, lng, ts:Date.now()});
-  h[clientKey] = arr.slice(0,5);
-  saveHist(h);
-}
+const driverToken = getOrCreateDriverToken();
 
-function renderHist(){
-  const h = loadHist();
-  const keys = Object.keys(h);
-  if(!keys.length){ qs("#localHist").textContent = "—"; return; }
-  const lines = [];
-  for(const k of keys){
-    const arr = h[k] || [];
-    const pts = arr.map(p=>`${p.lat.toFixed(5)},${p.lng.toFixed(5)} (${Math.max(1, Math.round((Date.now()-p.ts)/1000))}s)`).join(" • ");
-    lines.push(`<div style="margin:10px 0 0"><b>${k}</b><br>${pts}</div>`);
-  }
-  qs("#localHist").innerHTML = lines.join("");
-}
+let map, markerDriver;
+let watchId = null;
+let lastDriverLatLng = null;
 
-function initMap(){
-  map = L.map("map", { zoomControl:true });
+const markers = new Map(); // session -> marker
+const sessionData = new Map(); // session -> row (pending/active)
+
+const ICON_CLIENT = L.icon({ iconUrl: "./icons/marker-client.svg", iconSize: [44, 44], iconAnchor: [22, 44] });
+const ICON_DRIVER  = L.icon({ iconUrl: "./icons/marker-driver.svg",  iconSize: [48, 48], iconAnchor: [24, 48] });
+
+function initMap() {
+  map = L.map("map", { zoomControl: true });
+  map.setView([42.6887, 2.8948], 13);
+
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom:19,
-    attribution:'&copy; OpenStreetMap'
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap",
   }).addTo(map);
 
-  driverMarker = L.marker([42.698,2.895], { icon: driverIcon }).addTo(map);
-  map.setView([42.698,2.895], 12);
-
-  qs("#btnCenter").addEventListener("click", ()=>{
-    const ll = driverMarker.getLatLng();
-    map.setView([ll.lat, ll.lng], Math.max(map.getZoom(), 15));
-  });
+  markerDriver = L.marker([42.6887, 2.8948], { icon: ICON_DRIVER }).addTo(map);
 }
 
-async function startGps(){
-  if(watchingId!=null) return;
-  if(!navigator.geolocation){ alert("Géolocalisation non supportée."); return; }
+function showPinGate() {
+  els.overlay.style.display = "flex";
+  els.app.style.display = "none";
+  els.pinInput.value = "";
+  els.pinInput.focus();
+}
 
-  watchingId = navigator.geolocation.watchPosition(async (pos)=>{
+function hidePinGate() {
+  els.overlay.style.display = "none";
+  els.app.style.display = "block";
+}
+
+function checkPin() {
+  const ok = localStorage.getItem(LS.pinOk) === "1";
+  if (ok) return true;
+  showPinGate();
+  return false;
+}
+
+function acceptPin() {
+  const v = (els.pinInput.value || "").trim();
+  if (v === DRIVER_PIN) {
+    localStorage.setItem(LS.pinOk, "1");
+    hidePinGate();
+    bootAfterGate();
+  } else {
+    els.pinErr.style.display = "block";
+    els.pinInput.focus();
+  }
+}
+
+async function registerSW() {
+  // SW uniquement ici (livreur)
+  try {
+    if ("serviceWorker" in navigator) {
+      await navigator.serviceWorker.register("./sw.js", { scope: "./" });
+    }
+  } catch (_) {}
+}
+
+function recenter() {
+  if (lastDriverLatLng) {
+    map.setView(lastDriverLatLng, 15);
+  }
+}
+
+async function startDriverGps() {
+  if (!("geolocation" in navigator)) {
+    alert("GPS indisponible.");
+    return;
+  }
+  if (watchId != null) return;
+
+  setText(els.gpsState, "Actif");
+  els.btnGps.textContent = "GPS actif";
+  els.btnGps.disabled = true;
+
+  watchId = navigator.geolocation.watchPosition(async (pos) => {
     const lat = pos.coords.latitude;
     const lng = pos.coords.longitude;
     const acc = pos.coords.accuracy;
-    const speed = pos.coords.speed;
-    const heading = pos.coords.heading;
-    const battery = null;
+    const speed = pos.coords.speed ?? null;
+    const heading = pos.coords.heading ?? null;
 
-    driverMarker.setLatLng([lat,lng]);
+    lastDriverLatLng = [lat, lng];
+    markerDriver.setLatLng(lastDriverLatLng);
 
-    try{
-      await api("/driver/update", { method:"POST", body:{
-        driver_token: getToken(),
-        lat, lng, acc,
-        speed, heading, battery,
-        ts: Date.now()
-      }});
-    }catch(_){}
-  }, (err)=>{
-    console.log(err);
-  }, { enableHighAccuracy:true, maximumAge:0, timeout:12000 });
-
-  qs("#trkTitle").textContent = "Tracking actif";
-  setStatusPill(qs("#trkPill"), "active");
-}
-
-function stopGps(){
-  if(watchingId!=null){
-    navigator.geolocation.clearWatch(watchingId);
-    watchingId = null;
-  }
-  qs("#trkTitle").textContent = "Inactif";
-  setStatusPill(qs("#trkPill"), "expired");
-}
-
-function durVal(){ return Number(qs("#dur").value || DEFAULT_ACTIVE_MINUTES); }
-
-async function decision(session, decision, minutes=null){
-  const body = { driver_token:getToken(), session, decision };
-  if(minutes!=null) body.minutes = minutes;
-  return api("/driver/decision", { method:"POST", body });
-}
-
-function markerKey(sess){ return sess.client_name || sess.client_id || (sess.session||"").slice(0,8); }
-
-function setMarker(sessionObj, mode){
-  const session = sessionObj.session;
-  const lat = sessionObj.client_lat;
-  const lng = sessionObj.client_lng;
-  if(!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-
-  let m = clientMarkers.get(session);
-  if(!m){
-    m = L.marker([lat,lng], { icon: clientIcon }).addTo(map);
-    clientMarkers.set(session, m);
-  }else{
-    m.setLatLng([lat,lng]);
-  }
-
-  const label = sessionObj.client_name || (sessionObj.client_id ? sessionObj.client_id.slice(0,8) : "Client");
-  const status = sessionObj.status;
-
-  const menu = `
-    <div style="min-width:240px">
-      <div style="font-weight:900;margin-bottom:6px">${label} <span style="opacity:.75">(${status})</span></div>
-      <div style="font-size:12px;opacity:.8;margin-bottom:10px">Session: ${session.slice(0,8)}… • Expire: ${sessionObj.expires_ts ? fmtTime(sessionObj.expires_ts) : "—"}</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        ${status==="pending" ? `
-          <button data-act="accept" style="padding:10px 12px;border-radius:12px;border:0;font-weight:800;cursor:pointer;background:#16a34a;color:#fff">Accepter</button>
-          <button data-act="deny" style="padding:10px 12px;border-radius:12px;border:0;font-weight:800;cursor:pointer;background:#ef4444;color:#fff">Refuser</button>
-        ` : `
-          <button data-act="plus5" style="padding:10px 12px;border-radius:12px;border:0;font-weight:800;cursor:pointer;background:#3b82f6;color:#fff">+5 min</button>
-          <button data-act="minus5" style="padding:10px 12px;border-radius:12px;border:0;font-weight:800;cursor:pointer;background:#f59e0b;color:#0b1c2d">-5 min</button>
-          <button data-act="stop" style="padding:10px 12px;border-radius:12px;border:0;font-weight:800;cursor:pointer;background:#ef4444;color:#fff">Stop</button>
-        `}
-      </div>
-    </div>
-  `;
-
-  m.bindPopup(menu);
-
-  m.on("popupopen", (e)=>{
-    const root = e.popup.getElement();
-    if(!root) return;
-    root.querySelectorAll("button[data-act]").forEach(btn=>{
-      btn.addEventListener("click", async ()=>{
-        const act = btn.getAttribute("data-act");
-        btn.disabled = true;
-        try{
-          if(act==="accept"){
-            await decision(session, "accept", durVal());
-          }else if(act==="deny"){
-            await decision(session, "deny");
-          }else if(act==="stop"){
-            await decision(session, "stop");
-          }else if(act==="plus5"){
-            const mins = clamp(durVal()+5, 5, MAX_ACTIVE_MINUTES);
-            qs("#dur").value = String(mins);
-            qs("#durVal").textContent = String(mins);
-            await decision(session, "accept", mins);
-          }else if(act==="minus5"){
-            const mins = clamp(durVal()-5, 5, MAX_ACTIVE_MINUTES);
-            qs("#dur").value = String(mins);
-            qs("#durVal").textContent = String(mins);
-            await decision(session, "accept", mins);
-          }
-        }catch(err){
-          alert(err?.data?.error || err.message);
-        }finally{
-          m.closePopup();
-        }
+    // Envoi au worker
+    try {
+      await apiFetchJson(`${API_BASE}/driver/update`, {
+        method: "POST",
+        body: JSON.stringify({
+          driver_token: driverToken,
+          lat, lng, acc,
+          speed, heading,
+          battery: null,
+          ts: Date.now(),
+        }),
       });
-    });
-  });
-
-  // historisation locale (pour debug)
-  pushHist(label, lat, lng);
+      setText(els.lastUpdate, "OK");
+    } catch {
+      setText(els.lastUpdate, "Erreur réseau");
+    }
+  }, () => {
+    setText(els.gpsState, "Refusé");
+    els.btnGps.disabled = false;
+    els.btnGps.textContent = "Activer GPS livreur";
+  }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
 }
 
-function cleanupMarkers(validSessions){
-  const keep = new Set(validSessions.map(s=>s.session));
-  for(const [sess, marker] of clientMarkers.entries()){
-    if(!keep.has(sess)){
+function minutesRemaining(expiresTs) {
+  if (!expiresTs) return null;
+  const ms = Number(expiresTs) - Date.now();
+  return Math.max(0, Math.ceil(ms / 60000));
+}
+
+async function decide(session, decision, minutes=null) {
+  const payload = { driver_token: driverToken, session, decision };
+  if (minutes != null) payload.minutes = minutes;
+  return apiFetchJson(`${API_BASE}/driver/decision`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+function actionRow(row, kind) {
+  const name = (row.client_name || "").trim() || (row.client_id || "Client");
+  const rem = minutesRemaining(row.expires_ts);
+  const meta = kind === "pending"
+    ? `Demande • expire dans ${Math.max(0, Math.ceil((Number(row.expires_ts||0)-Date.now())/60000))} min`
+    : `Actif • reste ~${rem ?? "?"} min`;
+
+  const div = document.createElement("div");
+  div.className = "item";
+
+  const top = document.createElement("div");
+  top.className = "itemTop";
+
+  const left = document.createElement("div");
+  left.innerHTML = `<div class="itemName">${escapeHtml(name)}</div><div class="itemMeta">${escapeHtml(meta)}</div>`;
+
+  const right = document.createElement("div");
+  right.style.opacity = ".85";
+  right.style.fontWeight = "900";
+  right.textContent = kind === "pending" ? "⏳" : "🟢";
+
+  top.appendChild(left);
+  top.appendChild(right);
+
+  const actions = document.createElement("div");
+  actions.className = "actions";
+
+  const btnAccept = mkBtn("Accepter", "smallBtn good");
+  const btnDeny   = mkBtn("Refuser", "smallBtn bad");
+  const btnPlus   = mkBtn("+5", "smallBtn cyan");
+  const btnMinus  = mkBtn("-5", "smallBtn cyan");
+  const btnStop   = mkBtn("Stop", "smallBtn bad");
+
+  // Defaults
+  if (kind === "pending") {
+    btnPlus.disabled = true;
+    btnMinus.disabled = true;
+    btnStop.disabled = true;
+  } else {
+    btnAccept.disabled = true;
+    btnDeny.disabled = true;
+  }
+
+  btnAccept.onclick = async () => {
+    btnAccept.disabled = true;
+    try { await decide(row.session, "accept", MAX_MINUTES); } finally {}
+  };
+  btnDeny.onclick = async () => {
+    btnDeny.disabled = true;
+    try { await decide(row.session, "deny"); } finally {}
+  };
+
+  btnPlus.onclick = async () => {
+    const cur = minutesRemaining(row.expires_ts) ?? 0;
+    const next = Math.min(MAX_MINUTES, Math.max(1, cur + 5));
+    try { await decide(row.session, "accept", next); } finally {}
+  };
+  btnMinus.onclick = async () => {
+    const cur = minutesRemaining(row.expires_ts) ?? 0;
+    const next = Math.min(MAX_MINUTES, Math.max(1, cur - 5));
+    try { await decide(row.session, "accept", next); } finally {}
+  };
+  btnStop.onclick = async () => {
+    btnStop.disabled = true;
+    try { await decide(row.session, "stop"); } finally {}
+  };
+
+  actions.append(btnAccept, btnDeny, btnPlus, btnMinus, btnStop);
+
+  div.appendChild(top);
+  div.appendChild(actions);
+
+  // Click recentre sur le client
+  div.addEventListener("click", (e) => {
+    if (e.target.closest("button")) return;
+    if (typeof row.client_lat === "number" && typeof row.client_lng === "number") {
+      map.setView([row.client_lat, row.client_lng], 15);
+    }
+  });
+
+  return div;
+}
+
+function mkBtn(label, cls) {
+  const b = document.createElement("button");
+  b.className = cls;
+  b.textContent = label;
+  return b;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+
+function upsertClientMarker(row, kind) {
+  const s = row.session;
+  sessionData.set(s, row);
+
+  const hasCoords = typeof row.client_lat === "number" && typeof row.client_lng === "number";
+  if (!hasCoords) return;
+
+  const ll = [row.client_lat, row.client_lng];
+  let m = markers.get(s);
+
+  if (!m) {
+    m = L.marker(ll, { icon: ICON_CLIENT });
+    m.addTo(map);
+    m.on("click", () => openClientPopup(row));
+    markers.set(s, m);
+  } else {
+    m.setLatLng(ll);
+  }
+}
+
+function openClientPopup(row) {
+  const name = (row.client_name || "").trim() || (row.client_id || "Client");
+  const rem = minutesRemaining(row.expires_ts);
+  const kind = row.status === "pending" ? "pending" : "active";
+
+  const wrap = document.createElement("div");
+  wrap.style.minWidth = "220px";
+  wrap.innerHTML = `<div style="font-weight:900;margin-bottom:6px">${escapeHtml(name)}</div>
+                    <div style="opacity:.8;font-size:12px;margin-bottom:8px">${kind==="pending"?"Demande en attente":"Suivi actif"}${rem!=null?` • ~${rem}min`: ""}</div>`;
+
+  const rowBtns = document.createElement("div");
+  rowBtns.style.display = "flex";
+  rowBtns.style.gap = "8px";
+  rowBtns.style.flexWrap = "wrap";
+
+  const bA = mkBtn("Accepter", "smallBtn good");
+  const bR = mkBtn("Refuser", "smallBtn bad");
+  const bP = mkBtn("+5", "smallBtn cyan");
+  const bM = mkBtn("-5", "smallBtn cyan");
+  const bS = mkBtn("Stop", "smallBtn bad");
+
+  if (kind === "pending") { bP.disabled = true; bM.disabled = true; bS.disabled = true; }
+  else { bA.disabled = true; bR.disabled = true; }
+
+  bA.onclick = async () => { try { await decide(row.session,"accept",MAX_MINUTES); } finally {} };
+  bR.onclick = async () => { try { await decide(row.session,"deny"); } finally {} };
+  bP.onclick = async () => {
+    const cur = minutesRemaining(row.expires_ts) ?? 0;
+    const next = Math.min(MAX_MINUTES, Math.max(1, cur + 5));
+    try { await decide(row.session,"accept",next); } finally {}
+  };
+  bM.onclick = async () => {
+    const cur = minutesRemaining(row.expires_ts) ?? 0;
+    const next = Math.min(MAX_MINUTES, Math.max(1, cur - 5));
+    try { await decide(row.session,"accept",next); } finally {}
+  };
+  bS.onclick = async () => { try { await decide(row.session,"stop"); } finally {} };
+
+  rowBtns.append(bA,bR,bP,bM,bS);
+  wrap.appendChild(rowBtns);
+
+  const m = markers.get(row.session);
+  if (m) m.bindPopup(wrap).openPopup();
+}
+
+function pruneMarkers(validSessions) {
+  for (const [session, marker] of markers.entries()) {
+    if (!validSessions.has(session)) {
       map.removeLayer(marker);
-      clientMarkers.delete(sess);
+      markers.delete(session);
+      sessionData.delete(session);
     }
   }
 }
 
-function renderRequests(pending, active){
-  const box = qs("#reqList");
+async function refreshDashboard() {
+  try {
+    const data = await apiFetchJson(`${API_BASE}/driver/dashboard?driver_token=${encodeURIComponent(driverToken)}`);
+    if (!data?.ok) return;
 
-  if(!pending.length && !active.length){
-    box.textContent = "Aucune demande.";
-    return;
-  }
+    const pending = Array.isArray(data.pending) ? data.pending : [];
+    const active = Array.isArray(data.active) ? data.active : [];
 
-  const lines = [];
-  if(pending.length){
-    lines.push("<b>En attente</b>");
-    for(const s of pending){
-      const name = s.client_name || (s.client_id ? s.client_id.slice(0,8) : "Client");
-      lines.push(`• ${name} — expire: ${fmtTime(s.expires_ts)}`);
+    setText(els.pendingCount, String(pending.length));
+    setText(els.lastUpdate, "—");
+
+    // Latest driver pos (optional)
+    if (data.latest && typeof data.latest.lat === "number" && typeof data.latest.lng === "number") {
+      lastDriverLatLng = [data.latest.lat, data.latest.lng];
+      markerDriver.setLatLng(lastDriverLatLng);
     }
-    lines.push("<br>");
-  }
-  if(active.length){
-    lines.push("<b>Actifs</b>");
-    for(const s of active){
-      const name = s.client_name || (s.client_id ? s.client_id.slice(0,8) : "Client");
-      lines.push(`• ${name} — fin: ${fmtTime(s.expires_ts)}`);
+
+    // Render lists
+    els.listPending.innerHTML = "";
+    if (pending.length === 0) {
+      els.listPending.innerHTML = `<div class="item" style="opacity:.8">Aucune demande.</div>`;
+    } else {
+      for (const r of pending) els.listPending.appendChild(actionRow(r, "pending"));
     }
+
+    els.listActive.innerHTML = "";
+    if (active.length === 0) {
+      els.listActive.innerHTML = `<div class="item" style="opacity:.8">Aucun suivi actif.</div>`;
+    } else {
+      for (const r of active) els.listActive.appendChild(actionRow(r, "active"));
+    }
+
+    // Markers
+    const valid = new Set();
+    for (const r of pending) { valid.add(r.session); r.status="pending"; upsertClientMarker(r,"pending"); }
+    for (const r of active)  { valid.add(r.session); r.status="active";  upsertClientMarker(r,"active"); }
+    pruneMarkers(valid);
+
+  } catch {
+    // ignore (réseau)
   }
-  box.innerHTML = lines.join("<br>");
 }
 
-async function refresh(){
-  const dash = await api("/driver/dashboard?driver_token=" + encodeURIComponent(getToken()));
-  const now = dash.now || Date.now();
-  qs("#mapInfo").textContent = "Maj: " + fmtTime(now) + " • ID: " + getToken().slice(0,8) + "…";
-
-  const pending = (dash.pending || []).map(s=>({...s, status:"pending"}));
-  const active = (dash.active || []).map(s=>({...s, status:"active"}));
-
-  const all = [...pending, ...active];
-
-  // markers
-  all.forEach(s=>setMarker(s));
-  cleanupMarkers(all);
-
-  renderRequests(pending, active);
-  renderHist();
+let dashTimer = null;
+function startDashboardLoop() {
+  refreshDashboard();
+  if (dashTimer) clearInterval(dashTimer);
+  dashTimer = setInterval(refreshDashboard, 2000);
 }
 
-function setup(){
+function bootAfterGate() {
   initMap();
-  qs("#btnBack").addEventListener("click", ()=>history.back());
-  qs("#btnStart").addEventListener("click", ()=>startGps());
-  qs("#btnStop").addEventListener("click", ()=>stopGps());
+  registerSW();
+  setText(els.gpsState, "Inactif");
+  setText(els.lastUpdate, "—");
 
-  qs("#dur").addEventListener("input", (e)=>{
-    qs("#durVal").textContent = String(e.target.value);
-  });
-  qs("#dur").value = String(DEFAULT_ACTIVE_MINUTES);
-  qs("#durVal").textContent = String(DEFAULT_ACTIVE_MINUTES);
+  els.btnGps.addEventListener("click", startDriverGps);
+  els.btnRecenter.addEventListener("click", recenter);
 
-  // SW
-  if("serviceWorker" in navigator){
-    navigator.serviceWorker.register("./worker.js").catch(()=>{});
+  startDashboardLoop();
+}
+
+function boot() {
+  // Gate PIN
+  if (localStorage.getItem(LS.pinOk) === "1") {
+    hidePinGate();
+    bootAfterGate();
+  } else {
+    showPinGate();
   }
 
-  (async ()=>{
-    while(true){
-      try{ await refresh(); }catch(e){ console.log(e); }
-      await sleep(2000);
-    }
-  })();
+  els.pinBtn.addEventListener("click", acceptPin);
+  els.pinInput.addEventListener("keydown", (e) => { if (e.key === "Enter") acceptPin(); });
 }
-setup();
+
+boot();

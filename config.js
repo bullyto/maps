@@ -1,11 +1,5 @@
-// Config AND SUIVI
-// Mets ici l'URL de ton Worker Cloudflare (sans slash final)
+// Apéro de Nuit 66 • Suivi — config
 export const API_BASE = "https://and-suivi.apero-nuit-du-66.workers.dev";
-
-// Nom de l'app (pour affichage)
-export const APP_NAME = "Suivi de commande";
-
-// Durées
-export const MAX_ACTIVE_MINUTES = 30; // demandé
-export const DEFAULT_ACTIVE_MINUTES = 30;
-export const REQUEST_EXPIRE_MINUTES = 8; // fenêtre pour accepter (côté worker)
+export const MAX_MINUTES = 30;           // max autorisé par le livreur
+export const ARRIVAL_RADIUS_M = 500;     // (optionnel futur)
+export const DRIVER_PIN = "0000";        // code d'accès livreur (mode B)

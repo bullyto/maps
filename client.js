@@ -1,92 +1,177 @@
-import { API_BASE, DEFAULT_ACTIVE_MINUTES } from "./config.js";
-import { api, qs, setStatusPill, fmtTime, sleep } from "./shared.js";
+import { API_BASE } from "./config.js";
+import { apiFetchJson, setText, getOrCreateClientId } from "./shared.js";
 
-let map, meMarker, driverMarker;
-let lastCenter = null;
+const els = {
+  name: document.getElementById("name"),
+  btnRequest: document.getElementById("btnRequest"),
+  btnReset: document.getElementById("btnReset"),
+  stateText: document.getElementById("stateText"),
+  countdown: document.getElementById("countdown"),
+  statusBadge: document.getElementById("statusBadge"),
+};
 
-const LS_SESSION = "and_suivi_session";
-const LS_CLIENT_ID = "and_suivi_client_id";
-const LS_CLIENT_NAME = "and_suivi_client_name";
+const LS = {
+  session: "adn_session_v1",
+  name: "adn_client_name_v1",
+  lastState: "adn_client_last_state_v1",
+};
 
-function getOrCreateId(){
-  let id = localStorage.getItem(LS_CLIENT_ID);
-  if(!id){
-    id = crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(16)+Math.random().toString(16).slice(2));
-    localStorage.setItem(LS_CLIENT_ID, id);
-  }
-  return id;
-}
+const clientId = getOrCreateClientId();
 
-function getName(){
-  return (localStorage.getItem(LS_CLIENT_NAME) || "").trim();
-}
+let map, markerClient, markerDriver;
+let pollTimer = null;
+let watchId = null;
+let currentSession = localStorage.getItem(LS.session) || "";
 
-function setName(v){
-  localStorage.setItem(LS_CLIENT_NAME, (v||"").trim());
-}
+const ICON_CLIENT = L.icon({ iconUrl: "./icons/marker-client.svg", iconSize: [44, 44], iconAnchor: [22, 44] });
+const ICON_DRIVER  = L.icon({ iconUrl: "./icons/marker-driver.svg",  iconSize: [48, 48], iconAnchor: [24, 48] });
 
-function setSession(s){
-  if(s) localStorage.setItem(LS_SESSION, s);
-  else localStorage.removeItem(LS_SESSION);
-}
-function getSession(){ return (localStorage.getItem(LS_SESSION) || "").trim(); }
-
-function initMap(){
+function initMap() {
   map = L.map("map", { zoomControl: true });
+  // centre par défaut (Perpignan)
+  map.setView([42.6887, 2.8948], 13);
+
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
-    attribution: '&copy; OpenStreetMap'
+    attribution: "&copy; OpenStreetMap",
   }).addTo(map);
 
-  const clientIcon = L.icon({ iconUrl: "./icons/marker-client.svg", iconSize:[44,44], iconAnchor:[22,38] });
-  const driverIcon = L.icon({ iconUrl: "./icons/marker-driver.svg", iconSize:[44,44], iconAnchor:[22,38] });
-
-  meMarker = L.marker([42.698, 2.895], { icon: clientIcon }).addTo(map);
-  driverMarker = L.marker([42.698, 2.895], { icon: driverIcon, opacity:0 }).addTo(map);
-
-  map.setView([42.698, 2.895], 12);
-
-  qs("#btnCenter").addEventListener("click", ()=>{
-    if(lastCenter) map.setView(lastCenter, Math.max(map.getZoom(), 15));
-  });
+  markerClient = L.marker([42.6887, 2.8948], { icon: ICON_CLIENT }).addTo(map);
 }
 
-async function askGeoloc(){
-  return new Promise((resolve, reject)=>{
-    if(!navigator.geolocation) return reject(new Error("geolocation not supported"));
-    navigator.geolocation.getCurrentPosition(
-      pos=>resolve(pos),
-      err=>reject(err),
-      { enableHighAccuracy:true, timeout:12000, maximumAge:0 }
-    );
-  });
+function setButtonState(mode) {
+  // mode: idle | pending | active | expired
+  if (mode === "idle") {
+    els.btnRequest.disabled = false;
+    els.btnRequest.textContent = "Suivre ma commande";
+    els.btnReset.style.display = "none";
+    return;
+  }
+  if (mode === "pending") {
+    els.btnRequest.disabled = true;
+    els.btnRequest.textContent = "Demande envoyée…";
+    els.btnReset.style.display = "none";
+    return;
+  }
+  if (mode === "active") {
+    els.btnRequest.disabled = true;
+    els.btnRequest.textContent = "Suivi actif";
+    els.btnReset.style.display = "none";
+    return;
+  }
+  // expired/denied
+  els.btnRequest.disabled = true;
+  els.btnRequest.textContent = "Accès terminé";
+  els.btnReset.style.display = "block";
 }
 
-async function sendRequest(){
-  const btn = qs("#btnRequest");
-  btn.disabled = true;
+function fmtRemaining(expiresAt) {
+  if (!expiresAt) return "—";
+  const ms = Number(expiresAt) - Date.now();
+  if (ms <= 0) return "0:00";
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, "0")}`;
+}
 
-  const name = qs("#clientName").value.trim();
-  if(name.length < 2){
-    btn.disabled = false;
-    alert("Entre un nom (2 caractères minimum).");
+function stopAllTrackingUI() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+
+  // retire le marqueur driver
+  if (markerDriver) {
+    map.removeLayer(markerDriver);
+    markerDriver = null;
+  }
+  setText(els.countdown, "—");
+}
+
+async function startPolling() {
+  if (!currentSession) return;
+
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    const state = await apiFetchJson(`${API_BASE}/client/state?session=${encodeURIComponent(currentSession)}`);
+    if (!state?.ok) return;
+
+    const st = state.status || "expired";
+    setText(els.stateText, st === "pending" ? "En attente" : st === "active" ? "Actif" : st === "denied" ? "Refusé" : "Terminé");
+    setText(els.countdown, st === "active" ? fmtRemaining(state.expires_at) : "—");
+
+    // IMPORTANT: si pas actif -> on NE doit jamais afficher le livreur
+    if (st !== "active") {
+      els.statusBadge.textContent = st === "pending" ? "En attente d’acceptation" : "Accès terminé";
+      setButtonState(st === "pending" ? "pending" : "expired");
+      stopAllTrackingUI();
+      return;
+    }
+
+    // actif
+    els.statusBadge.textContent = "Suivi en cours";
+    setButtonState("active");
+
+    if (state.driver && typeof state.driver.lat === "number" && typeof state.driver.lng === "number") {
+      const ll = [state.driver.lat, state.driver.lng];
+      if (!markerDriver) markerDriver = L.marker(ll, { icon: ICON_DRIVER }).addTo(map);
+      else markerDriver.setLatLng(ll);
+    } else {
+      // pas de coords -> retire
+      if (markerDriver) { map.removeLayer(markerDriver); markerDriver = null; }
+    }
+  }, 2000);
+}
+
+async function startWatchPosition() {
+  if (!("geolocation" in navigator)) throw new Error("geolocation_unavailable");
+
+  if (watchId != null) return;
+
+  watchId = navigator.geolocation.watchPosition(async (pos) => {
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+    const acc = pos.coords.accuracy;
+
+    markerClient.setLatLng([lat, lng]);
+
+    if (!currentSession) return;
+    // ping (best effort)
+    try {
+      await apiFetchJson(`${API_BASE}/client/ping`, {
+        method: "POST",
+        body: JSON.stringify({
+          session: currentSession,
+          client_id: clientId,
+          client_name: (els.name.value || "").trim(),
+          lat, lng, acc, ts: Date.now(),
+        }),
+      });
+    } catch (_) {}
+  }, () => {}, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+}
+
+async function requestFlow() {
+  const name = (els.name.value || "").trim();
+  if (!name) {
+    els.name.focus();
+    alert("Entre ton nom (il sera affiché au livreur).");
     return;
   }
-  setName(name);
+  localStorage.setItem(LS.name, name);
 
-  // Si on a déjà une session en cours, on ne spam pas : on reprend la session.
-  const existing = getSession();
-  if(existing){
-    await refreshState(); // met à jour l'UI
+  // Demande de position obligatoire
+  if (!("geolocation" in navigator)) {
+    alert("GPS indisponible sur cet appareil.");
     return;
   }
 
-  let pos;
-  try{
-    pos = await askGeoloc();
-  }catch(e){
-    btn.disabled = false;
-    alert("Tu dois accepter la géolocalisation. Sinon, pas de suivi (sécurité + précision).");
+  // 1) obtenir une position instantanée (obligatoire)
+  const pos = await new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+  }).catch(() => null);
+
+  if (!pos) {
+    alert("Impossible d’obtenir votre position. Autorise le GPS pour activer le suivi.");
     return;
   }
 
@@ -94,138 +179,64 @@ async function sendRequest(){
   const lng = pos.coords.longitude;
   const acc = pos.coords.accuracy;
 
-  const client_id = getOrCreateId();
+  markerClient.setLatLng([lat, lng]);
+  map.setView([lat, lng], 15);
 
-  const r = await api("/client/request", {
-    method:"POST",
-    body:{ client_id, client_name:name, lat, lng, acc, ts: Date.now() }
+  // 2) créer/reprendre session (anti-spam côté worker)
+  const res = await apiFetchJson(`${API_BASE}/client/request`, {
+    method: "POST",
+    body: JSON.stringify({ client_id: clientId, client_name: name, lat, lng, acc, ts: Date.now() }),
   });
 
-  if(r?.session){
-    setSession(r.session);
-  }
-
-  await refreshState();
-}
-
-async function pingClient(){
-  const session = getSession();
-  if(!session) return;
-
-  try{
-    const pos = await askGeoloc();
-    const lat = pos.coords.latitude;
-    const lng = pos.coords.longitude;
-    const acc = pos.coords.accuracy;
-
-    await api("/client/ping", { method:"POST", body:{
-      session,
-      client_id: getOrCreateId(),
-      client_name: getName() || null,
-      lat, lng, acc,
-      ts: Date.now()
-    }});
-    meMarker.setLatLng([lat, lng]);
-    lastCenter = [lat, lng];
-  }catch(_){
-    // pas bloquant (si user a coupé GPS)
-  }
-}
-
-function uiSet(status){
-  const title = qs("#statusTitle");
-  const pill = qs("#statusPill");
-  setStatusPill(pill, status);
-
-  if(status==="pending"){
-    title.textContent = "En attente d'acceptation…";
-  }else if(status==="active"){
-    title.textContent = "Suivi actif";
-  }else if(status==="denied"){
-    title.textContent = "Refusé";
-  }else if(status==="expired"){
-    title.textContent = "Accès terminé";
-  }else{
-    title.textContent = "Prêt";
-  }
-}
-
-async function refreshState(){
-  const btn = qs("#btnRequest");
-  const session = getSession();
-  const info = qs("#footerInfo");
-
-  // Saisie nom persistée
-  const savedName = getName();
-  if(savedName && !qs("#clientName").value) qs("#clientName").value = savedName;
-
-  if(!session){
-    uiSet("expired");
-    btn.disabled = false;
-    btn.textContent = "Suivre ma commande";
-    driverMarker.setOpacity(0);
-    info.textContent = "—";
+  if (!res?.ok || !res.session) {
+    alert("Erreur: impossible d’envoyer la demande.");
     return;
   }
 
-  let s;
-  try{
-    s = await api("/client/state?session=" + encodeURIComponent(session));
-  }catch(e){
-    // session invalide -> reset
-    setSession(null);
-    uiSet("expired");
-    btn.disabled = false;
-    btn.textContent = "Suivre ma commande";
-    return;
-  }
+  currentSession = res.session;
+  localStorage.setItem(LS.session, currentSession);
 
-  const status = s.status || "expired";
-  uiSet(status);
+  // 3) UI en attente
+  setButtonState(res.status === "active" ? "active" : "pending");
+  setText(els.stateText, res.status === "active" ? "Actif" : "En attente");
+  els.statusBadge.textContent = res.status === "active" ? "Suivi en cours" : "En attente d’acceptation";
 
-  // Anti-spam: bouton bloqué si pending ou active
-  if(status==="pending"){
-    btn.disabled = true;
-    btn.textContent = "Demande envoyée";
-  }else if(status==="active"){
-    btn.disabled = true;
-    btn.textContent = "Suivi en cours";
-  }else{
-    // terminé/denied -> on libère + reset session
-    btn.disabled = false;
-    btn.textContent = "Suivre ma commande";
-    setSession(null);
-  }
-
-  if(s.driver && status==="active"){
-    driverMarker.setLatLng([s.driver.lat, s.driver.lng]).setOpacity(1);
-    info.textContent = "Dernière position livreur : " + fmtTime(s.driver.ts);
-  }else{
-    driverMarker.setOpacity(0);
-    info.textContent = status==="pending" ? "En attente de réponse du livreur." : "—";
-  }
+  // 4) watch position + polling
+  await startWatchPosition();
+  await startPolling();
 }
 
-async function loop(){
-  while(true){
-    await refreshState();
-    await pingClient(); // keep alive + maj position client côté livreur
-    await sleep(2000);
-  }
+function resetSession() {
+  localStorage.removeItem(LS.session);
+  currentSession = "";
+  stopAllTrackingUI();
+  setText(els.stateText, "—");
+  els.statusBadge.textContent = "Suivi sécurisé";
+  setButtonState("idle");
 }
 
-function setup(){
+function boot() {
   initMap();
-  qs("#btnBack").addEventListener("click", ()=>history.back());
-  qs("#btnRequest").addEventListener("click", ()=>sendRequest());
-  qs("#clientName").addEventListener("change", (e)=>setName(e.target.value));
 
-  // PWA SW (optionnel)
-  if("serviceWorker" in navigator){
-    navigator.serviceWorker.register("./worker.js").catch(()=>{});
+  // restore name
+  const savedName = localStorage.getItem(LS.name) || "";
+  if (savedName) els.name.value = savedName;
+
+  // restore session state
+  if (currentSession) {
+    setButtonState("pending");
+    setText(els.stateText, "En attente");
+    els.statusBadge.textContent = "Reprise…";
+    startWatchPosition().catch(()=>{});
+    startPolling().catch(()=>{});
+  } else {
+    setButtonState("idle");
   }
 
-  loop();
+  els.btnRequest.addEventListener("click", () => requestFlow().catch(() => {
+    alert("Autorise le GPS pour activer le suivi.");
+  }));
+  els.btnReset.addEventListener("click", resetSession);
 }
 
-setup();
+boot();

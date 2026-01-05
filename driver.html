@@ -1,85 +1,92 @@
 <!doctype html>
 <html lang="fr">
 <head>
-<title>Espace livreur</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Suivi Livreur • Apéro de Nuit 66</title>
 
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<link rel="manifest" href="./manifest.webmanifest">
-<link rel="icon" href="./icon-192.png">
-<link rel="apple-touch-icon" href="./apple-touch-icon.png">
-<link rel="stylesheet" href="./style.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-<script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <!-- IMPORTANT: manifest + SW UNIQUEMENT côté livreur -> PWA install = livreur -->
+  <link rel="manifest" href="./manifest.webmanifest">
+  <meta name="theme-color" content="#0b1c2d">
+  <link rel="apple-touch-icon" href="./assets/icon-192.png">
+  <link rel="icon" href="./assets/icon-192.png">
 
+  <link rel="stylesheet" href="./style.css">
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 </head>
 <body>
-  <div class="container">
-    <div class="topbar">
+  <!-- Gate PIN -->
+  <div id="pinOverlay" class="overlay" style="display:none">
+    <div class="modal">
+      <h2>Accès livreur</h2>
+      <p>Entre le code pour ouvrir l’espace pro.</p>
+      <input id="pinInput" class="input" inputmode="numeric" maxlength="8" placeholder="Code">
+      <div style="height:10px"></div>
+      <button id="pinBtn" class="btn">Déverrouiller</button>
+      <div id="pinErr" class="notice" style="display:none;margin-top:12px">Code incorrect.</div>
+    </div>
+  </div>
+
+  <div class="wrap" id="app" style="display:none">
+    <header class="topbar">
       <div class="brand">
-        <span class="dotlive" aria-hidden="true"></span>
-        <div style="min-width:0">
-          <h1>Espace livreur</h1>
-          <p>accepte/refuse • durée • multi-clients</p>
+        <img alt="Apéro de Nuit 66" src="https://raw.githubusercontent.com/bullyto/apero/main/assets/logo-header.png">
+      </div>
+      <div class="badge"><span class="dot"></span><span id="driverStatus">Livreur en ligne</span></div>
+    </header>
+
+    <section class="card">
+      <h1 class="h1" style="margin-bottom:6px">Espace Livreur</h1>
+      <p class="p">Demandes en attente + suivis actifs. Clique un client (sur la carte ou dans la liste) pour agir.</p>
+
+      <div class="kpiRow" style="margin-top:12px">
+        <div class="kpi">
+          <div class="t">GPS livreur</div>
+          <div class="v" id="gpsState">—</div>
+        </div>
+        <div class="kpi">
+          <div class="t">Dernière mise à jour</div>
+          <div class="v" id="lastUpdate">—</div>
+        </div>
+        <div class="kpi">
+          <div class="t">Demandes</div>
+          <div class="v" id="pendingCount">0</div>
         </div>
       </div>
-      <button id="btnBack" class="btn secondary">Retour</button>
-    </div>
 
-    <div class="card">
-      <div class="row">
-        <div>
-          <div class="small">Statut tracking</div>
-          <h2 id="trkTitle" style="margin-top:2px">Inactif</h2>
-        </div>
-        <div class="pill" id="trkPill" data-status="expired">—</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+        <button id="btnGps" class="btn" style="flex:1;min-width:220px">Activer GPS livreur</button>
+        <button id="btnRecenter" class="btn secondary" style="flex:1;min-width:220px">Recentrer</button>
       </div>
 
-      <div class="grid2" style="margin-top:12px">
-        <button id="btnStart" class="btn">Démarrer GPS</button>
-        <button id="btnStop" class="btn secondary">Stop</button>
+      <div class="mapWrap">
+        <div id="map"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="h1" style="font-size:18px;margin-bottom:10px">Demandes & suivis</h2>
+
+      <div class="notice" style="margin-top:0">
+        Astuce : <b>+5 / -5</b> ajuste le temps (max 30 min). <b>Stop</b> coupe immédiatement.
       </div>
 
-      <div class="small" style="margin-top:10px">
-        Astuce : installe la PWA + coupe l’économie batterie pour éviter les coupures en arrière-plan.
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="row" style="justify-content:space-between">
-        <div>
-          <h2 style="margin-bottom:4px">Carte</h2>
-          <div class="small" id="mapInfo">Maj: —</div>
-        </div>
-        <div class="row">
-          <button id="btnCenter" class="btn secondary">Recentrer</button>
-        </div>
-      </div>
-      <div class="mapWrap"><div id="map"></div></div>
-    </div>
-
-    <div class="card">
-      <h2>Demandes clients</h2>
-      <div class="small">Accepte/refuse • choisis la durée (max 30 min). Clique un client actif sur la carte pour gérer.</div>
-
-      <div class="field">
-        <label>Durée autorisée</label>
-        <input id="dur" type="range" min="5" max="30" step="1" value="30">
-        <div class="small">Durée : <span id="durVal">30</span> min</div>
+      <div style="margin-top:12px">
+        <div class="p" style="font-weight:900;margin-bottom:8px">En attente</div>
+        <div id="listPending" class="list"></div>
       </div>
 
-      <div id="reqList" class="small" style="margin-top:12px">Chargement…</div>
-    </div>
-
-    <div class="card">
-      <h2>Historique local</h2>
-      <div class="small">Les 5 dernières positions par client (sur ce téléphone uniquement).</div>
-      <div id="localHist" class="small" style="margin-top:10px">—</div>
-    </div>
+      <div style="margin-top:14px">
+        <div class="p" style="font-weight:900;margin-bottom:8px">Actifs</div>
+        <div id="listActive" class="list"></div>
+      </div>
+    </section>
   </div>
 
   <div class="legal">L’abus d’alcool est dangereux pour la santé, à consommer avec modération.</div>
 
-<script type="module" src="./driver.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script type="module" src="./driver.js"></script>
 </body>
 </html>

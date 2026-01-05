@@ -1,73 +1,65 @@
-/* Service Worker — And-Suivi (PWA)
-   Offline-first shell (pages + JS/CSS). Map tiles are NOT cached here.
-*/
-const CACHE_NAME = "and-suivi-shell-v1";
+// ADN66 Suivi Livreur — Service Worker (force update)
+const CACHE = "adn66-suivi-driver-v1767583271";
 const ASSETS = [
-  "./",
-  "./index.html",
-  "./client.html",
   "./driver.html",
-  "./app.js",
-  "./config.js",
-  "./shared.js",
-  "./client.js",
+  "./style.css",
   "./driver.js",
+  "./shared.js",
+  "./config.js",
   "./manifest.webmanifest",
-  "./offline.html"
+  "./icons/marker-client.svg",
+  "./icons/marker-driver.svg",
+  "./assets/icon-192.png",
+  "./assets/icon-512.png"
 ];
 
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())
-  );
+self.addEventListener("install", (e) => {
+  e.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+    await cache.addAll(ASSETS.map(u => new Request(u, { cache: "reload" })));
+    await self.skipWaiting();
+  })());
 });
 
-self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
-  );
+self.addEventListener("activate", (e) => {
+  e.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k => k !== CACHE ? caches.delete(k) : Promise.resolve()));
+    await self.clients.claim();
+  })());
 });
 
-self.addEventListener("fetch", (event) => {
-  const req = event.request;
-  if (req.method !== "GET") return;
-
+self.addEventListener("fetch", (e) => {
+  const req = e.request;
   const url = new URL(req.url);
 
-  // Don't cache cross-origin requests (OSM tiles, Worker API, etc.)
-  if (url.origin !== self.location.origin) return;
+  // Only handle same-origin GET
+  if (req.method !== "GET" || url.origin !== location.origin) return;
 
-  event.respondWith((async () => {
-    const cache = await caches.open(CACHE_NAME);
-
-    // Navigation requests: network-first with offline fallback
-    if (req.mode === "navigate") {
+  // Network-first for HTML/JS/CSS (always fresh)
+  const isCritical = url.pathname.endsWith(".html") || url.pathname.endsWith(".js") || url.pathname.endsWith(".css") || url.pathname.endsWith(".webmanifest");
+  if (isCritical) {
+    e.respondWith((async () => {
       try {
-        const fresh = await fetch(req);
-        cache.put(req, fresh.clone());
-        return fresh;
-      } catch (e) {
-        const cached = await cache.match(req);
-        return cached || cache.match("./offline.html");
+        const res = await fetch(req);
+        const cache = await caches.open(CACHE);
+        cache.put(req, res.clone());
+        return res;
+      } catch {
+        const cached = await caches.match(req);
+        return cached || new Response("Offline", { status: 503 });
       }
-    }
+    })());
+    return;
+  }
 
-    // Assets: cache-first
-    const cached = await cache.match(req);
+  // Cache-first for small assets
+  e.respondWith((async () => {
+    const cached = await caches.match(req);
     if (cached) return cached;
-
-    try {
-      const fresh = await fetch(req);
-      cache.put(req, fresh.clone());
-      return fresh;
-    } catch (e) {
-      // If asset missing, fall back to offline for html
-      if (req.headers.get("accept")?.includes("text/html")) {
-        return cache.match("./offline.html");
-      }
-      throw e;
-    }
+    const res = await fetch(req);
+    const cache = await caches.open(CACHE);
+    cache.put(req, res.clone());
+    return res;
   })());
 });

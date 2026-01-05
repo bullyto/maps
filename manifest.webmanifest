@@ -1,18 +1,19 @@
 {
-  "name": "Suivi de commande",
-  "short_name": "Suivi ADN",
-  "start_url": "./",
+  "name": "ADN66 • Suivi Livreur",
+  "short_name": "ADN66 Livreur",
+  "start_url": "./driver.html",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#0b1c2d",
   "theme_color": "#0b1c2d",
   "icons": [
     {
-      "src": "./icon-192.png",
+      "src": "./assets/icon-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "./icon-512.png",
+      "src": "./assets/icon-512.png",
       "sizes": "512x512",
       "type": "image/png"
     }
