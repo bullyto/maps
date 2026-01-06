@@ -93,7 +93,7 @@ async function initOneSignal() {
 
       // IMPORTANT: on utilise TON SW /maps/sw.js (un seul SW pour cache + push)
       serviceWorkerPath: "./sw.js",
-      serviceWorkerUpdaterPath: "./sw.js",
+      serviceWorkerUpdaterPath: "./OneSignalSDKUpdaterWorker.js",
     });
 
     _osReady = true;
