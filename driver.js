@@ -32,8 +32,6 @@ const driverToken = getOrCreateDriverToken();
 
 // ---------------------------
 // Push Notifications (OneSignal Web Push)
-// Objectif : recevoir une notif quand un client lance un suivi, même si la PWA driver est fermée.
-// Limites : sur Android/iOS, le "son" dépend des réglages système (Web Push ne force pas une sonnerie custom).
 // ---------------------------
 let _osReady = false;
 let _osInitTried = false;
@@ -118,6 +116,35 @@ async function initOneSignal() {
   }
 }
 
+// ✅ Nouveau helper : enregistre côté Worker de manière robuste
+async function registerToWorker(payload) {
+  // On standardise l’endpoint
+  const url = `${API_BASE}/push/register`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const text = await res.text();
+  let json = null;
+  try { json = text ? JSON.parse(text) : null; } catch (_) {}
+
+  if (!res.ok) {
+    // On remonte un message clair (404, 500, etc.)
+    const msg = (json && (json.error || json.message)) ? (json.error || json.message) : (text || `HTTP ${res.status}`);
+    throw new Error(msg);
+  }
+
+  // si le worker renvoie du JSON ok:false
+  if (json && json.ok === false) {
+    throw new Error(json.error || "ok=false");
+  }
+
+  return json || { ok: true };
+}
+
 async function registerPushSubscription() {
   if (!_osReady) return;
 
@@ -144,15 +171,14 @@ async function registerPushSubscription() {
     }
 
     // Enregistrement côté Cloudflare Worker (D1)
-    await apiFetchJson(API_BASE + "/pushregister", {
-      method: "POST",
-      body: JSON.stringify({
-        role: "driver",
-        subscription_id: subId,
-        driver_token: driverToken,
-        ua: navigator.userAgent,
-        ts: Date.now(),
-      }),
+    setPushUI("PENDING", "(enregistrement…)");
+
+    await registerToWorker({
+      role: "driver",
+      subscription_id: subId,
+      driver_token: driverToken,
+      ua: navigator.userAgent,
+      ts: Date.now(),
     });
 
     setPushUI("OK");
@@ -223,7 +249,6 @@ function updateDriverMarker(lat, lng) {
   if (markerDriver) markerDriver.setLatLng(lastDriverLatLng);
 }
 
-
 function showPinGate() {
   els.overlay.style.display = "flex";
   els.app.style.display = "none";
@@ -234,13 +259,6 @@ function showPinGate() {
 function hidePinGate() {
   els.overlay.style.display = "none";
   els.app.style.display = "block";
-}
-
-function checkPin() {
-  const ok = localStorage.getItem(LS.pinOk) === "1";
-  if (ok) return true;
-  showPinGate();
-  return false;
 }
 
 function acceptPin() {
