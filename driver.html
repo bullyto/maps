@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Suivi Livreur • Apéro de Nuit 66</title>
 
-  <!-- IMPORTANT: manifest + SW UNIQUEMENT côté livreur -> PWA install = livreur -->
   <link rel="manifest" href="./manifest.webmanifest">
   <meta name="theme-color" content="#0b1c2d">
   <link rel="apple-touch-icon" href="./assets/icon-192.png">
@@ -17,19 +16,27 @@
 
   <!-- OneSignal Web Push (v16) -->
   <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+
   <script>
+    // Init OneSignal + SW custom (notre sw.js)
     window.OneSignalDeferred = window.OneSignalDeferred || [];
     OneSignalDeferred.push(async function(OneSignal) {
-      await OneSignal.init({
-        appId: "639b5a31-e09f-4d34-ad0f-d111d66a14ac",
-        // IMPORTANT: GitHub Pages "project pages" => service worker doit être référencé depuis la racine de l'origin
-        // Notre SW est à: https://bullyto.github.io/maps/sw.js
-        serviceWorkerPath: "maps/sw.js",
-        serviceWorkerParam: { scope: "/maps/" },
-      });
+      try {
+        await OneSignal.init({
+          appId: "639b5a31-e09f-4d34-ad0f-d111d66a14ac",
+          // IMPORTANT: sous GitHub project pages, il faut un chemin ABSOLU:
+          serviceWorkerPath: "/maps/sw.js",
+          serviceWorkerParam: { scope: "/maps/" },
+        });
+        window.__adn_onesignal_ready = true;
+      } catch (e) {
+        window.__adn_onesignal_ready = false;
+        window.__adn_onesignal_error = String(e && (e.message || e) || e);
+      }
     });
   </script>
 </head>
+
 <body>
   <!-- Gate PIN -->
   <div id="pinOverlay" class="overlay" style="display:none">
@@ -52,7 +59,6 @@
 
     <section class="card">
       <h1 class="h1" style="margin-bottom:6px">Espace Livreur</h1>
-      <p class="p"></p>
 
       <div class="kpiRow" style="margin-top:12px">
         <div class="kpi">
@@ -75,13 +81,13 @@
 
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
         <button id="btnPushEnable" class="btn secondary" style="flex:1;min-width:220px">Activer notifications</button>
-
-        <div class="btnRow">
-          <button id="btnGps" class="btn btnSmall" style="flex:1;min-width:220px">Activer GPS</button>
-          <button id="btnGpsStop" class="btn btnSmall btnDanger" disabled>Arrêter GPS</button>
-        </div>
+        <button id="btnGps" class="btn btnSmall" style="flex:1;min-width:220px">Activer GPS</button>
+        <button id="btnGpsStop" class="btn btnSmall btnDanger" disabled>Arrêter GPS</button>
         <button id="btnRecenter" class="btn secondary" style="flex:1;min-width:220px">Recentrer</button>
       </div>
+
+      <!-- DEBUG (visible) -->
+      <div class="p" id="pushDebug" style="margin-top:10px;opacity:.85;font-size:12px;word-break:break-word"></div>
 
       <div class="mapWrap">
         <div id="map"></div>
@@ -91,7 +97,6 @@
     <section class="card">
       <h2 class="h1" style="margin-bottom:6px">Demandes</h2>
       <p class="p">Les demandes “pending” apparaissent ici. Clique pour accepter/refuser.</p>
-
       <div id="pendingList" class="list"></div>
       <div id="activeList" class="list" style="margin-top:12px"></div>
     </section>
