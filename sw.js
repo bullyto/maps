@@ -1,49 +1,50 @@
-// ADN66 Suivi Livreur — Service Worker (Offline cache + OneSignal Web Push)
+// Apéro de Nuit 66 • Maps — Service Worker (Offline cache + OneSignal Web Push)
 // Scope: /maps/
 //
 // Objectifs:
-// 1) Permettre à OneSignal de recevoir des notifications même PWA fermée (via SW).
-// 2) Garder un cache offline pour les assets essentiels.
-// 3) Ne JAMAIS casser l'install si un asset listé n'existe pas (pas de addAll "fragile").
-// 4) Ne pas mettre en cache OneSignal / API Cloudflare (toujours network).
+// 1) OneSignal: permettre de recevoir des notifications même PWA fermée (driver).
+// 2) Offline cache: rendre l’UI utilisable hors-ligne (best effort).
+// 3) Robustesse: ne jamais faire échouer l’install si un fichier listé n’existe pas.
+// 4) Eviter les bugs: ne pas cacher OneSignal ni l’API Cloudflare Workers.
 
-// --- OneSignal SW (push) ---
 try {
+  // OneSignal (push)
   importScripts("https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js");
 } catch (e) {
-  // Offline au moment de l'install => le SW continue quand même.
-  // Les push ne seront dispo qu'une fois la ressource OneSignal accessible.
+  // Si offline à l'install, l'app reste utilisable; les push arriveront quand le SDK sera accessible.
 }
 
 const VERSION = "v2026-01-06";
 const CACHE_NAME = `adn66-maps-${VERSION}`;
 
-// Liste d'assets "essentiels" (best effort).
-// IMPORTANT: on ne doit PAS échouer si un fichier manque.
+// Assets "core" (best effort)
 const CORE_ASSETS = [
   "./",
-  "./driver.html",
-  "./driver.js",
-  "./client.html",
-  "./client.js",
   "./index.html",
+  "./client.html",
+  "./driver.html",
   "./offline.html",
+
+  "./app.js",
+  "./client.js",
+  "./driver.js",
   "./shared.js",
   "./config.js",
-  "./app.js",
+
   "./style.css",
+  "./styles.css",
   "./manifest.webmanifest",
 
-  // icons fréquents dans ton repo maps
   "./icons/marker-client.svg",
   "./icons/marker-driver.svg",
 
-  // pwa icons (si présents)
   "./assets/icon-192.png",
   "./assets/icon-512.png",
+  "./apple-touch-icon.png",
+  "./icon-192.png",
 ];
 
-// Petite fonction: cache un fichier si dispo, sinon ignore.
+// Cache un asset s'il existe (sinon ignore)
 async function cacheIfOk(cache, url) {
   try {
     const res = await fetch(url, { cache: "no-store" });
@@ -58,12 +59,9 @@ async function cacheIfOk(cache, url) {
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
-
-    // Cache "best effort": on tente chaque asset un par un (aucun échec global)
     for (const asset of CORE_ASSETS) {
       await cacheIfOk(cache, asset);
     }
-
     await self.skipWaiting();
   })());
 });
@@ -71,27 +69,19 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(
-      keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : Promise.resolve()))
-    );
+    await Promise.all(keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : null)));
     await self.clients.claim();
   })());
 });
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
-
-  // On ne gère que GET
   if (req.method !== "GET") return;
 
   let url;
-  try {
-    url = new URL(req.url);
-  } catch {
-    return;
-  }
+  try { url = new URL(req.url); } catch { return; }
 
-  // 1) Bypass OneSignal (TOUJOURS réseau)
+  // 1) OneSignal => réseau direct (évite mismatch SDK)
   if (
     url.hostname.includes("onesignal.com") ||
     url.hostname.includes("cdn.onesignal.com") ||
@@ -101,12 +91,11 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 2) Bypass API Cloudflare Workers (TOUJOURS réseau + fallback cache si dispo)
+  // 2) API Cloudflare Workers => réseau direct + fallback cache
   if (url.hostname.endsWith("workers.dev")) {
     event.respondWith((async () => {
-      try {
-        return await fetch(req);
-      } catch (_) {
+      try { return await fetch(req); }
+      catch {
         const cached = await caches.match(req);
         return cached || new Response("Offline", { status: 503 });
       }
@@ -114,9 +103,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 3) Stratégie pour le reste:
-  // - Cache-first pour assets statiques
-  // - Network fallback
+  // 3) Cache-first pour le reste
   event.respondWith((async () => {
     const cached = await caches.match(req);
     if (cached) return cached;
@@ -124,7 +111,6 @@ self.addEventListener("fetch", (event) => {
     try {
       const res = await fetch(req);
 
-      // Mettre en cache uniquement si OK et type plausible
       if (res && res.ok) {
         const ct = (res.headers.get("content-type") || "").toLowerCase();
         if (
@@ -139,21 +125,16 @@ self.addEventListener("fetch", (event) => {
           await cache.put(req, res.clone());
         }
       }
-
       return res;
-    } catch (_) {
-      // Fallback offline:
-      // - si c'est une navigation (page), on renvoie offline.html si dispo
+    } catch {
+      // Offline fallback pour navigation
       const accept = req.headers.get("accept") || "";
       if (accept.includes("text/html")) {
         const offline = await caches.match("./offline.html");
         if (offline) return offline;
-
-        const driver = await caches.match("./driver.html");
-        if (driver) return driver;
+        const index = await caches.match("./index.html");
+        if (index) return index;
       }
-
-      // Sinon, dernier recours
       return new Response("Offline", { status: 503 });
     }
   })());

@@ -3,3 +3,7 @@ export const API_BASE = "https://and-suivi.apero-nuit-du-66.workers.dev";
 export const MAX_MINUTES = 30;           // max autorisé par le livreur
 export const ARRIVAL_RADIUS_M = 500;     // (optionnel futur)
 export const DRIVER_PIN = "0000";        // code d'accès livreur (mode B)
+
+// --- OneSignal (Driver) ---
+// App ID public (OK dans le front). La REST API KEY reste côté Cloudflare en secret.
+export const ONESIGNAL_APP_ID = "639b5a31-e09f-4d34-ad0f-d111d66a14ad";
