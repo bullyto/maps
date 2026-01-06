@@ -8,12 +8,12 @@ const els = {
   pinErr: document.getElementById("pinErr"),
   app: document.getElementById("app"),
 
-  driverStatus: document.getElementById("driverStatus"),
   gpsState: document.getElementById("gpsState"),
   lastUpdate: document.getElementById("lastUpdate"),
   pendingCount: document.getElementById("pendingCount"),
 
   pushState: document.getElementById("pushState"),
+  pushDebug: document.getElementById("pushDebug"),
   btnPushEnable: document.getElementById("btnPushEnable"),
 
   btnGps: document.getElementById("btnGps"),
@@ -27,7 +27,6 @@ const els = {
 const LS = {
   pinOk: "adn_driver_pin_ok_v1",
   pushSubId: "adn_driver_push_sub_id_v1",
-  pushRegisteredAt: "adn_driver_push_registered_at_v1",
 };
 
 const driverToken = getOrCreateDriverToken();
@@ -37,24 +36,14 @@ let watchId = null;
 let lastDriverLatLng = null;
 let didCenterOnce = false;
 
-const markers = new Map(); // session -> marker
-const sessionData = new Map(); // session -> row (pending/active)
+const markers = new Map();
 
-const ICON_CLIENT = L.icon({
-  iconUrl: "./icons/marker-client.svg",
-  iconSize: [36, 36],
-  iconAnchor: [18, 36],
-});
+const ICON_CLIENT = L.icon({ iconUrl: "./icons/marker-client.svg", iconSize: [36, 36], iconAnchor: [18, 36] });
+const ICON_DRIVER = L.icon({ iconUrl: "./icons/marker-driver.svg", iconSize: [40, 40], iconAnchor: [20, 40] });
 
-const ICON_DRIVER = L.icon({
-  iconUrl: "./icons/marker-driver.svg",
-  iconSize: [40, 40],
-  iconAnchor: [20, 40],
-});
-
-// =====================
-// Gate PIN
-// =====================
+function dbg(t) {
+  if (els.pushDebug) els.pushDebug.textContent = t || "";
+}
 
 function showPinGate() {
   els.overlay.style.display = "flex";
@@ -63,12 +52,10 @@ function showPinGate() {
   els.pinErr.style.display = "none";
   els.pinInput.focus();
 }
-
 function hidePinGate() {
   els.overlay.style.display = "none";
   els.app.style.display = "block";
 }
-
 function submitPin() {
   els.pinErr.style.display = "none";
   const v = (els.pinInput.value || "").trim();
@@ -83,7 +70,6 @@ function submitPin() {
 }
 
 async function registerSW() {
-  // SW uniquement ici (livreur)
   try {
     if ("serviceWorker" in navigator) {
       await navigator.serviceWorker.register("./sw.js", { scope: "./" });
@@ -93,27 +79,19 @@ async function registerSW() {
   }
 }
 
-// =====================
-// OneSignal Push (livreur)
-// =====================
+/* ===================== PUSH OneSignal ===================== */
 
 function setPushState(label) {
   if (els.pushState) setText(els.pushState, label);
 }
-
 function getStoredPushSubId() {
   return (localStorage.getItem(LS.pushSubId) || "").trim() || null;
 }
-
 function storePushSubId(id) {
-  if (!id) return;
-  localStorage.setItem(LS.pushSubId, id);
-  localStorage.setItem(LS.pushRegisteredAt, String(Date.now()));
+  if (id) localStorage.setItem(LS.pushSubId, id);
 }
 
 async function postPushRegister(subscriptionId) {
-  // Enregistre le device push dans le Worker (D1)
-  // Best-effort: si l'API répond mal, on garde l'app utilisable.
   try {
     const r = await apiFetchJson(`${API_BASE}/push/register`, {
       method: "POST",
@@ -127,100 +105,110 @@ async function postPushRegister(subscriptionId) {
     if (r && r.ok) {
       storePushSubId(subscriptionId);
       setPushState("✅ Activées");
+      dbg(`OK: subscription_id enregistré (${subscriptionId})`);
       return true;
     }
   } catch (e) {
     console.warn("[push] register failed", e);
+    dbg("Erreur /push/register: " + String(e?.message || e));
   }
-  setPushState("⚠️ Erreur d’enregistrement");
+  setPushState("⚠️ Erreur");
   return false;
 }
 
 async function refreshPushStateFromOneSignal() {
-  // OneSignal SDK est chargé en defer => toujours passer par OneSignalDeferred
   if (!window.OneSignalDeferred) {
     setPushState("—");
+    dbg("OneSignalDeferred absent (SDK pas chargé).");
     return;
   }
 
   window.OneSignalDeferred.push(async function(OneSignal) {
     try {
-      const supported = await OneSignal.Notifications.isPushSupported();
-      if (!supported) {
-        setPushState("❌ Non supportées");
-        if (els.btnPushEnable) els.btnPushEnable.disabled = true;
+      if (window.__adn_onesignal_ready === false) {
+        setPushState("⚠️ OneSignal KO");
+        dbg("OneSignal init error: " + (window.__adn_onesignal_error || "unknown"));
         return;
       }
 
-      const perm = OneSignal.Notifications.permission; // 'default' | 'granted' | 'denied'
+      const supported = await OneSignal.Notifications.isPushSupported();
+      if (!supported) {
+        setPushState("❌ Non supportées");
+        dbg("Push non supportées sur ce navigateur.");
+        els.btnPushEnable.disabled = true;
+        return;
+      }
+
+      const perm = OneSignal.Notifications.permission; // default/granted/denied
       const optedIn = OneSignal.User?.PushSubscription?.optedIn === true;
       const subId = OneSignal.User?.PushSubscription?.id || null;
 
+      dbg(`supported=${supported} perm=${perm} optedIn=${optedIn} subId=${subId || "null"}`);
+
       if (perm === "denied") {
-        setPushState("⛔ Bloquées (réglages)");
-        if (els.btnPushEnable) els.btnPushEnable.disabled = true;
+        setPushState("⛔ Bloquées");
+        els.btnPushEnable.disabled = true;
+        els.btnPushEnable.textContent = "Notifications bloquées";
         return;
       }
 
       if (optedIn && subId) {
         setPushState("✅ Activées");
-        if (els.btnPushEnable) {
-          els.btnPushEnable.disabled = true;
-          els.btnPushEnable.textContent = "Notifications actives";
-        }
-        // Si on n'a pas encore enregistré le device dans notre Worker, on le fait.
+        els.btnPushEnable.disabled = true;
+        els.btnPushEnable.textContent = "Notifications actives";
+
         const stored = getStoredPushSubId();
-        if (stored !== subId) {
-          await postPushRegister(subId);
-        }
-      } else {
-        setPushState(perm === "granted" ? "⚠️ À activer (opt-in)" : "🔔 À activer");
-        if (els.btnPushEnable) {
-          els.btnPushEnable.disabled = false;
-          els.btnPushEnable.textContent = "Activer notifications";
-        }
+        if (stored !== subId) await postPushRegister(subId);
+        return;
       }
+
+      setPushState(perm === "granted" ? "⚠️ Opt-in" : "🔔 À activer");
+      els.btnPushEnable.disabled = false;
+      els.btnPushEnable.textContent = "Activer notifications";
     } catch (e) {
       console.warn("[push] state error", e);
       setPushState("—");
+      dbg("Erreur refreshPushState: " + String(e?.message || e));
     }
   });
 }
 
 async function enablePushFlow() {
   if (!window.OneSignalDeferred) {
-    alert("OneSignal n’est pas chargé. Vérifie la connexion internet puis recharge la page.");
+    alert("OneSignal n’est pas chargé. Recharge la page et vérifie ta connexion.");
     return;
   }
 
-  // Débloque l'audio (si possible) via un geste utilisateur
-  try {
-    if (window.AudioContext) {
-      const ctx = window.__adn_audio_ctx || (window.__adn_audio_ctx = new AudioContext());
-      await ctx.resume();
-      window.__adn_audio_ctx_unlocked = true;
-    }
-  } catch {}
+  els.btnPushEnable.disabled = true;
+  els.btnPushEnable.textContent = "Autorisation…";
+  dbg("Tentative d’autorisation… (si rien ne pop: vérifier Notifications=Bloqué)");
 
-  // Obligatoire: déclenché par un clic utilisateur (bon UX + navigateur)
   window.OneSignalDeferred.push(async function(OneSignal) {
     try {
-      if (els.btnPushEnable) {
-        els.btnPushEnable.disabled = true;
-        els.btnPushEnable.textContent = "Autorisation…";
+      const supported = await OneSignal.Notifications.isPushSupported();
+      if (!supported) {
+        setPushState("❌ Non supportées");
+        dbg("Push non supportées.");
+        return;
       }
 
-      // optIn() tente aussi d'afficher le prompt si pas de token (doc v16)
+      // IMPORTANT: forcer la demande de permission (la popup)
+      // Si déjà granted, ça ne montre rien (normal)
+      await OneSignal.Notifications.requestPermission();
+
+      // Ensuite opt-in (crée la subscription)
       await OneSignal.User.PushSubscription.optIn();
-      // Attendre une micro-pause puis rafraîchir l'état
-      setTimeout(() => { refreshPushStateFromOneSignal(); }, 600);
+
+      // Attendre un peu que l'id arrive
+      setTimeout(async () => {
+        await refreshPushStateFromOneSignal();
+      }, 700);
     } catch (e) {
-      console.warn("[push] optIn failed", e);
-      if (els.btnPushEnable) {
-        els.btnPushEnable.disabled = false;
-        els.btnPushEnable.textContent = "Activer notifications";
-      }
-      setPushState("⚠️ Refusées / erreur");
+      console.warn("[push] enable failed", e);
+      setPushState("⚠️ Refus/erreur");
+      dbg("Erreur enablePushFlow: " + String(e?.message || e));
+      els.btnPushEnable.disabled = false;
+      els.btnPushEnable.textContent = "Activer notifications";
     }
   });
 }
@@ -230,31 +218,10 @@ function installPushListeners() {
 
   window.OneSignalDeferred.push(async function(OneSignal) {
     try {
-      // Quand la subscription change (nouvel id, token, optedIn)
       OneSignal.User.PushSubscription.addEventListener("change", async (event) => {
         const cur = event?.current || {};
-        if (cur.optedIn && cur.id) {
-          await postPushRegister(cur.id);
-        }
+        if (cur.optedIn && cur.id) await postPushRegister(cur.id);
         refreshPushStateFromOneSignal();
-      });
-
-      // Quand une notif arrive en foreground: vibre + bip (si audio déverrouillé)
-      OneSignal.Notifications.addEventListener("foregroundWillDisplay", () => {
-        try {
-          if (navigator.vibrate) navigator.vibrate([120, 60, 120]);
-          if (window.__adn_audio_ctx_unlocked && window.AudioContext) {
-            const ctx = window.__adn_audio_ctx || (window.__adn_audio_ctx = new AudioContext());
-            const o = ctx.createOscillator();
-            const g = ctx.createGain();
-            o.type = "sine";
-            o.frequency.value = 880;
-            g.gain.value = 0.08;
-            o.connect(g); g.connect(ctx.destination);
-            o.start();
-            setTimeout(() => { try { o.stop(); o.disconnect(); g.disconnect(); } catch {} }, 180);
-          }
-        } catch {}
       });
     } catch (e) {
       console.warn("[push] listeners error", e);
@@ -262,14 +229,11 @@ function installPushListeners() {
   });
 }
 
-// =====================
-// GPS + Map
-// =====================
+/* ===================== MAP + GPS ===================== */
 
 function initMap() {
   map = L.map("map", { zoomControl: true });
   map.setView([42.697, 2.895], 12);
-
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: "&copy; OpenStreetMap",
     maxZoom: 19,
@@ -279,15 +243,13 @@ function initMap() {
 }
 
 async function startDriverGps() {
-  if (!("geolocation" in navigator)) {
-    alert("GPS indisponible.");
-    return;
-  }
+  if (!("geolocation" in navigator)) return alert("GPS indisponible.");
   if (watchId != null) return;
 
   setText(els.gpsState, "Actif");
-  if (els.btnGps) { els.btnGps.disabled = true; els.btnGps.textContent = "GPS ON"; }
-  if (els.btnGpsStop) { els.btnGpsStop.disabled = false; }
+  els.btnGps.disabled = true;
+  els.btnGps.textContent = "GPS ON";
+  els.btnGpsStop.disabled = false;
 
   watchId = navigator.geolocation.watchPosition(
     async (pos) => {
@@ -300,22 +262,12 @@ async function startDriverGps() {
 
       lastDriverLatLng = [lat, lng];
       markerDriver.setLatLng(lastDriverLatLng);
+      if (!didCenterOnce) { didCenterOnce = true; map.setView(lastDriverLatLng, 15); }
 
-      if (!didCenterOnce) {
-        didCenterOnce = true;
-        map.setView(lastDriverLatLng, 15);
-      }
-
-      // post tracking
       try {
         await apiFetchJson(`${API_BASE}/driver/update`, {
           method: "POST",
-          body: JSON.stringify({
-            driver_token: driverToken,
-            lat, lng, acc, speed, heading,
-            battery: null,
-            ts,
-          }),
+          body: JSON.stringify({ driver_token: driverToken, lat, lng, acc, speed, heading, battery: null, ts }),
         });
         setText(els.lastUpdate, fmtAgo(Date.now()));
       } catch (e) {
@@ -337,19 +289,16 @@ function stopDriverGps() {
     watchId = null;
   }
   setText(els.gpsState, "Inactif");
-  if (els.btnGps) { els.btnGps.disabled = false; els.btnGps.textContent = "Activer GPS"; }
-  if (els.btnGpsStop) { els.btnGpsStop.disabled = true; }
+  els.btnGps.disabled = false;
+  els.btnGps.textContent = "Activer GPS";
+  els.btnGpsStop.disabled = true;
 }
 
 function recenter() {
-  if (lastDriverLatLng) {
-    map.setView(lastDriverLatLng, 15);
-  }
+  if (lastDriverLatLng) map.setView(lastDriverLatLng, 15);
 }
 
-// =====================
-// Dashboard / Sessions
-// =====================
+/* ===================== DASHBOARD ===================== */
 
 function sessionRowHtml(row) {
   const s = String(row.session || "");
@@ -381,12 +330,8 @@ function sessionRowHtml(row) {
 }
 
 function renderSessions(pending, active) {
-  const pendingHtml = (pending || []).map(sessionRowHtml).join("") || `<div class="empty">Aucune demande.</div>`;
-  const activeHtml = (active || []).map(sessionRowHtml).join("") || `<div class="empty">Aucune session active.</div>`;
-
-  els.pendingList.innerHTML = pendingHtml;
-  els.activeList.innerHTML = activeHtml;
-
+  els.pendingList.innerHTML = (pending || []).map(sessionRowHtml).join("") || `<div class="empty">Aucune demande.</div>`;
+  els.activeList.innerHTML = (active || []).map(sessionRowHtml).join("") || `<div class="empty">Aucune session active.</div>`;
   setText(els.pendingCount, String((pending || []).length));
 }
 
@@ -399,12 +344,7 @@ async function fetchDashboard() {
 async function driverDecision(session, decision, minutes) {
   return apiFetchJson(`${API_BASE}/driver/decision`, {
     method: "POST",
-    body: JSON.stringify({
-      driver_token: driverToken,
-      session,
-      decision,
-      minutes,
-    }),
+    body: JSON.stringify({ driver_token: driverToken, session, decision, minutes }),
   });
 }
 
@@ -416,9 +356,7 @@ async function startDashboardLoop() {
       const active = data.active || [];
       renderSessions(pending, active);
 
-      // Markers clients
       const nowSessions = new Set();
-
       for (const row of [...pending, ...active]) {
         const s = String(row.session || "");
         nowSessions.add(s);
@@ -427,23 +365,12 @@ async function startDashboardLoop() {
         const lng = row.client_lng != null ? Number(row.client_lng) : null;
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
 
-        if (!markers.has(s)) {
-          const m = L.marker([lat, lng], { icon: ICON_CLIENT }).addTo(map);
-          markers.set(s, m);
-          sessionData.set(s, row);
-        } else {
-          markers.get(s).setLatLng([lat, lng]);
-          sessionData.set(s, row);
-        }
+        if (!markers.has(s)) markers.set(s, L.marker([lat, lng], { icon: ICON_CLIENT }).addTo(map));
+        else markers.get(s).setLatLng([lat, lng]);
       }
 
-      // cleanup old markers
       for (const [s, m] of markers.entries()) {
-        if (!nowSessions.has(s)) {
-          try { map.removeLayer(m); } catch {}
-          markers.delete(s);
-          sessionData.delete(s);
-        }
+        if (!nowSessions.has(s)) { try { map.removeLayer(m); } catch {} markers.delete(s); }
       }
 
       setText(els.lastUpdate, fmtAgo(Date.now()));
@@ -453,7 +380,6 @@ async function startDashboardLoop() {
       setTimeout(loop, 2500);
     }
   };
-
   loop();
 }
 
@@ -466,17 +392,13 @@ function attachRowHandlers() {
     if (!act || !session) return;
 
     btn.disabled = true;
-
     try {
       if (act === "accept") {
         const minutes = prompt(`Durée de suivi (max ${MAX_MINUTES} min) ?`, "15");
         const m = Number(minutes);
         await driverDecision(session, "accept", Number.isFinite(m) ? m : 15);
-      } else if (act === "deny") {
-        await driverDecision(session, "deny", null);
-      } else if (act === "end") {
-        await driverDecision(session, "end", null);
-      }
+      } else if (act === "deny") await driverDecision(session, "deny", null);
+      else if (act === "end") await driverDecision(session, "end", null);
     } catch (err) {
       alert("Erreur: " + (err?.message || err));
     } finally {
@@ -485,32 +407,30 @@ function attachRowHandlers() {
   });
 }
 
-// =====================
-// Boot
-// =====================
+/* ===================== BOOT ===================== */
 
 function bootAfterGate() {
   initMap();
   registerSW();
+
   setText(els.gpsState, "Inactif");
   setText(els.lastUpdate, "—");
 
   els.btnGps.addEventListener("click", startDriverGps);
-  if (els.btnGpsStop) els.btnGpsStop.addEventListener("click", stopDriverGps);
+  els.btnGpsStop.addEventListener("click", stopDriverGps);
   els.btnRecenter.addEventListener("click", recenter);
 
   attachRowHandlers();
 
   // Push
   installPushListeners();
-  if (els.btnPushEnable) els.btnPushEnable.addEventListener("click", enablePushFlow);
+  els.btnPushEnable.addEventListener("click", enablePushFlow);
   refreshPushStateFromOneSignal();
 
   startDashboardLoop();
 }
 
 function boot() {
-  // Gate PIN
   if (localStorage.getItem(LS.pinOk) === "1") {
     hidePinGate();
     bootAfterGate();
@@ -519,9 +439,7 @@ function boot() {
   }
 
   els.pinBtn.addEventListener("click", submitPin);
-  els.pinInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") submitPin();
-  });
+  els.pinInput.addEventListener("keydown", (e) => { if (e.key === "Enter") submitPin(); });
 }
 
 boot();
