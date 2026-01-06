@@ -1,3 +1,10 @@
+/* OneSignal Web Push SDK (v16) — intégré dans le SW PWA pour éviter un conflit de scope */
+try {
+  importScripts("https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js");
+} catch (e) {
+  // Best-effort : si OneSignal est temporairement indisponible, on garde le SW PWA fonctionnel.
+}
+
 // ADN66 Suivi Livreur — Service Worker (force update)
 const CACHE = "adn66-suivi-driver-v1767583271";
 const ASSETS = [
@@ -33,33 +40,32 @@ self.addEventListener("fetch", (e) => {
   const req = e.request;
   const url = new URL(req.url);
 
-  // Only handle same-origin GET
-  if (req.method !== "GET" || url.origin !== location.origin) return;
+  // same-origin only
+  if (url.origin !== location.origin) return;
 
-  // Network-first for HTML/JS/CSS (always fresh)
-  const isCritical = url.pathname.endsWith(".html") || url.pathname.endsWith(".js") || url.pathname.endsWith(".css") || url.pathname.endsWith(".webmanifest");
-  if (isCritical) {
+  // network-first for HTML
+  if (req.mode === "navigate" || (req.headers.get("accept") || "").includes("text/html")) {
     e.respondWith((async () => {
       try {
-        const res = await fetch(req);
+        const fresh = await fetch(req);
         const cache = await caches.open(CACHE);
-        cache.put(req, res.clone());
-        return res;
+        cache.put(req, fresh.clone());
+        return fresh;
       } catch {
         const cached = await caches.match(req);
-        return cached || new Response("Offline", { status: 503 });
+        return cached || caches.match("./offline.html") || new Response("Offline", { status: 503 });
       }
     })());
     return;
   }
 
-  // Cache-first for small assets
+  // cache-first for assets
   e.respondWith((async () => {
     const cached = await caches.match(req);
     if (cached) return cached;
-    const res = await fetch(req);
+    const fresh = await fetch(req);
     const cache = await caches.open(CACHE);
-    cache.put(req, res.clone());
-    return res;
+    cache.put(req, fresh.clone());
+    return fresh;
   })());
 });
