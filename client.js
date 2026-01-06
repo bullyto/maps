@@ -1,300 +1,96 @@
-import { API_BASE, MAPS } from "./config.js";
-import { apiFetchJson, fmtAgo, setText, qs, sleep } from "./shared.js";
+import { API_BASE } from "./config.js";
+import { apiFetchJson, setText, qs, sleep } from "./shared.js";
 
 const els = {
-  gpsState: document.getElementById("gpsState"),
-  lastPing: document.getElementById("lastPing"),
-  pendingCount: document.getElementById("pendingCount"),
-
-  notifState: document.getElementById("notifState"),
-  btnNotif: document.getElementById("btnNotif"),
-
-  btnStart: document.getElementById("btnStart"),
-  btnStop: document.getElementById("btnStop"),
-  btnCenter: document.getElementById("btnCenter"),
+  token: document.getElementById("token"),
+  name: document.getElementById("name"),
+  city: document.getElementById("city"),
+  btnRequest: document.getElementById("btnRequest"),
+  btnCopy: document.getElementById("btnCopy"),
   hint: document.getElementById("hint"),
-  map: document.getElementById("map"),
+  status: document.getElementById("status"),
 };
 
-let watchId = null;
-let lastSentTs = 0;
-let map = null;
-let marker = null;
+const state = {
+  token: "",
+  requesting: false
+};
 
-// ---------------------------
-// OneSignal (Web Push) — DRIVER ONLY
-// Objectif: recevoir une notif même si la PWA driver est fermée (si l'OS autorise les notifs web).
-// Limite: sur Android/iOS, le "son" dépend des réglages système; on ne peut pas forcer une sonnerie custom via Web Push.
-// ---------------------------
-let onesignalReady = false;
-let pushRegisterInFlight = false;
+function getOrCreateToken() {
+  let t = localStorage.getItem("and_suivi_token");
+  if (!t) {
+    t = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem("and_suivi_token", t);
+  }
+  return t;
+}
 
-function setNotifUI(state, extra = "") {
-  // state: "KO" | "OK" | "BLOCKED" | "PENDING"
-  const map = {
-    OK: "✅ Activées",
-    KO: "⚠️ OneSignal KO",
-    BLOCKED: "⛔ Bloquées",
-    PENDING: "⏳ Autorisation..."
+async function requestFlow() {
+  // GPS obligatoire pour faire la demande (sinon on refuse, et on réactive le bouton dans le catch)
+  const pos = await new Promise((resolve, reject) => {
+    if (!("geolocation" in navigator)) return reject(new Error("no geo"));
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      maximumAge: 0,
+      timeout: 15000
+    });
+  });
+
+  const client_name = (els.name.value || "").trim();
+  const client_city = (els.city.value || "").trim();
+
+  const body = {
+    token: state.token,
+    client_name,
+    client_city,
+    lat: pos.coords.latitude,
+    lng: pos.coords.longitude,
+    ts: Date.now()
   };
-  setText(els.notifState, (map[state] || state) + (extra ? (" " + extra) : ""));
-  if (els.btnNotif) {
-    if (state === "OK") {
-      els.btnNotif.disabled = true;
-      els.btnNotif.textContent = "Notifications activées";
-    } else if (state === "PENDING") {
-      els.btnNotif.disabled = true;
-      els.btnNotif.textContent = "Autorisation…";
-    } else {
-      els.btnNotif.disabled = false;
-      els.btnNotif.textContent = "Activer notifications";
-    }
-  }
-}
 
-async function initOneSignalAndRefreshUI() {
-  if (!("Notification" in window)) {
-    setNotifUI("KO", "(incompatible)");
-    return;
-  }
-  // Si OneSignal n'est pas chargé, on affiche KO
-  if (!window.OneSignalDeferred) {
-    setNotifUI("KO", "(SDK absent)");
-    return;
-  }
-
-  // Attendre que OneSignal init soit passé dans le script du <head>
-  const t0 = Date.now();
-  while (Date.now() - t0 < 4000) {
-    if (window.__onesignal_ready === true || window.__onesignal_ready === false) break;
-    await sleep(100);
-  }
-
-  onesignalReady = window.__onesignal_ready === true;
-
-  if (!onesignalReady) {
-    setNotifUI("KO");
-    return;
-  }
-
-  // Etat permissions
-  const perm = Notification.permission; // "granted" | "denied" | "default"
-  if (perm === "denied") {
-    setNotifUI("BLOCKED");
-    return;
-  }
-  if (perm !== "granted") {
-    setNotifUI("KO", "(à activer)");
-    return;
-  }
-
-  // Permission ok => tenter d'enregistrer l'id de subscription côté worker
-  await registerPushSubscription();
-}
-
-async function registerPushSubscription() {
-  if (!onesignalReady) return;
-  if (pushRegisterInFlight) return;
-  pushRegisterInFlight = true;
-  try {
-    const OneSignal = await new Promise(resolve => {
-      window.OneSignalDeferred.push(function(os){ resolve(os); });
-    });
-
-    // Dans OneSignal v16, l'id de souscription est accessible via OneSignal.User.PushSubscription.id
-    const subId = OneSignal?.User?.PushSubscription?.id;
-    const optedIn = OneSignal?.User?.PushSubscription?.optedIn;
-    if (!subId || optedIn === false) {
-      // On est autorisé mais pas encore abonné: on force opt-in
-      try { await OneSignal?.User?.PushSubscription?.optIn(); } catch (_) {}
-    }
-
-    const finalId = OneSignal?.User?.PushSubscription?.id;
-    if (!finalId) {
-      setNotifUI("KO", "(pas d'ID)");
-      return;
-    }
-
-    // Enregistrer côté Cloudflare Worker (D1)
-    const payload = {
-      subscription_id: finalId,
-      role: "driver",
-      ua: navigator.userAgent || "",
-      ts: Date.now()
-    };
-    await apiFetchJson(API_BASE + "/push/register", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    });
-
-    setNotifUI("OK");
-  } catch (e) {
-    console.warn("push register failed", e);
-    setNotifUI("KO");
-  } finally {
-    pushRegisterInFlight = false;
-  }
-}
-
-async function requestNotifPermission() {
-  setNotifUI("PENDING");
-  try {
-    const OneSignal = await new Promise(resolve => {
-      window.OneSignalDeferred.push(function(os){ resolve(os); });
-    });
-
-    // Demande permission (natif navigateur)
-    try {
-      await OneSignal?.Notifications?.requestPermission();
-    } catch (_) {
-      // fallback
-      await Notification.requestPermission();
-    }
-
-    // Si autorisé => opt-in + register
-    if (Notification.permission === "granted") {
-      try { await OneSignal?.User?.PushSubscription?.optIn?.(); } catch (_) {}
-      await registerPushSubscription();
-    } else if (Notification.permission === "denied") {
-      setNotifUI("BLOCKED");
-    } else {
-      setNotifUI("KO", "(refusée)");
-    }
-  } catch (e) {
-    console.warn("notif permission error", e);
-    setNotifUI("KO");
-  }
-}
-
-// ---------------------------
-// MAP
-// ---------------------------
-function initMap() {
-  if (map) return;
-  map = L.map(els.map, {
-    zoomControl: true,
-    attributionControl: false,
-  }).setView(MAPS.defaultCenter, MAPS.defaultZoom);
-
-  L.tileLayer(MAPS.tileUrl, {
-    maxZoom: MAPS.maxZoom,
-  }).addTo(map);
-
-  marker = L.marker(MAPS.defaultCenter).addTo(map);
-}
-
-function setGpsUI(active) {
-  setText(els.gpsState, active ? "Actif" : "Inactif");
-  els.btnStart.disabled = active;
-  els.btnStop.disabled = !active;
-}
-
-// ---------------------------
-// GPS
-// ---------------------------
-async function sendDriverPing(lat, lng) {
-  const now = Date.now();
-  if (now - lastSentTs < 1500) return;
-  lastSentTs = now;
-
-  await apiFetchJson(API_BASE + "/driver/ping", {
+  const r = await apiFetchJson(API_BASE + "/client/request", {
     method: "POST",
-    body: JSON.stringify({
-      lat,
-      lng,
-      ts: now
-    })
+    body: JSON.stringify(body)
   });
 
-  setText(els.lastPing, "à l'instant");
+  setText(els.status, "Demande envoyée ✅ En attente du livreur…");
+  setText(els.hint, "");
+  return r;
 }
 
-async function startGps() {
-  if (!("geolocation" in navigator)) {
-    setText(els.hint, "GPS non supporté sur cet appareil.");
-    return;
-  }
+function boot() {
+  state.token = getOrCreateToken();
+  els.token.value = state.token;
 
-  setText(els.hint, "Autorisation…");
-
-  initMap();
-
-  watchId = navigator.geolocation.watchPosition(
-    async (pos) => {
-      const { latitude: lat, longitude: lng } = pos.coords;
-
-      marker.setLatLng([lat, lng]);
-      map.panTo([lat, lng], { animate: true });
-
-      setGpsUI(true);
+  els.btnCopy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(state.token);
+      setText(els.hint, "Token copié ✅");
+      await sleep(800);
       setText(els.hint, "");
-
-      try {
-        await sendDriverPing(lat, lng);
-      } catch (e) {
-        console.warn(e);
-      }
-    },
-    (err) => {
-      console.warn(err);
-      setText(els.hint, "Autorisation GPS refusée ou indisponible.");
-      setGpsUI(false);
-      if (watchId) {
-        navigator.geolocation.clearWatch(watchId);
-        watchId = null;
-      }
-    },
-    { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
-  );
-}
-
-function stopGps() {
-  if (watchId) {
-    navigator.geolocation.clearWatch(watchId);
-    watchId = null;
-  }
-  setGpsUI(false);
-}
-
-// ---------------------------
-// Polling / demandes
-// ---------------------------
-async function refreshPending() {
-  const r = await apiFetchJson(API_BASE + "/driver/pending", { method: "GET" });
-  setText(els.pendingCount, String(r?.count ?? 0));
-}
-
-function startPolling() {
-  refreshPending().catch(() => {});
-  setInterval(() => {
-    refreshPending().catch(() => {});
-    // "Dernière mise à jour"
-    const txt = fmtAgo(Date.now());
-    setText(els.lastPing, txt);
-  }, 3000);
-}
-
-// ---------------------------
-// Boot
-// ---------------------------
-function bootAfterGate() {
-  initMap();
-  setGpsUI(false);
-
-  els.btnStart.addEventListener("click", () => startGps());
-  els.btnStop.addEventListener("click", () => stopGps());
-  els.btnCenter.addEventListener("click", () => {
-    if (!map || !marker) return;
-    map.panTo(marker.getLatLng(), { animate: true });
+    } catch (_) {
+      alert("Impossible de copier (presse-papiers bloqué).");
+    }
   });
 
-  startPolling();
+  const btnRequest = els.btnRequest;
 
-  // Notifications push (OneSignal)
-  if (els.btnNotif) {
-    els.btnNotif.addEventListener("click", () => requestNotifPermission());
-  }
-  initOneSignalAndRefreshUI();
+  // ✅ Anti double-clic immédiat (c'est ton point)
+  btnRequest.addEventListener("click", () => {
+    if (state.requesting) return;
+    state.requesting = true;
+    btnRequest.disabled = true;
+    btnRequest.textContent = "Demande envoyée…";
+
+    requestFlow()
+      .catch(() => {
+        alert("Autorise le GPS pour activer le suivi.");
+        // On ré-autorise le bouton uniquement si la demande n'a pas pu partir.
+        state.requesting = false;
+        btnRequest.disabled = false;
+        btnRequest.textContent = "Suivre ma commande";
+      });
+  });
 }
 
-bootAfterGate();
+boot();
