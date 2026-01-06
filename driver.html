@@ -1,108 +1,89 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Suivi Livreur • Apéro de Nuit 66</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Apéro de Nuit 66 • Suivi Livreur</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <meta name="theme-color" content="#0b1f2b" />
+  <link rel="icon" href="./assets/icon-192.png" />
+  <link rel="apple-touch-icon" href="./assets/icon-192.png" />
+  <link rel="stylesheet" href="./style.css" />
 
-  <link rel="manifest" href="./manifest.webmanifest">
-  <meta name="theme-color" content="#0b1c2d">
-  <link rel="apple-touch-icon" href="./assets/icon-192.png">
-  <link rel="icon" href="./assets/icon-192.png">
-
-  <link rel="stylesheet" href="./style.css">
-  <link rel="preconnect" href="https://unpkg.com">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-
-  <!-- OneSignal Web Push (v16) -->
+  <!-- OneSignal Web Push (driver uniquement) -->
   <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
-
   <script>
-    // Init OneSignal + SW custom (notre sw.js)
+    // OneSignal v16 : init + SW custom (ne touche pas au SW PWA /maps/sw.js)
     window.OneSignalDeferred = window.OneSignalDeferred || [];
     OneSignalDeferred.push(async function(OneSignal) {
       try {
         await OneSignal.init({
-          appId: "639b5a31-e09f-4d34-ad0f-d111d66a14ac",
-          // IMPORTANT: sous GitHub project pages, il faut un chemin ABSOLU:
-          serviceWorkerPath: "/maps/sw.js",
-          serviceWorkerParam: { scope: "/maps/" },
+          appId: "%%ONESIGNAL_APP_ID%%",
+          notifyButton: { enable: false },
+          // Service Worker push isolé dans /maps/onesignal/ pour éviter conflit avec SW PWA
+          serviceWorkerPath: "/maps/onesignal/OneSignalSDKWorker.js",
+          serviceWorkerParam: { scope: "/maps/onesignal/" },
+          // Option utile pour que la notif reste affichée (selon OS/navigateur)
+          persistNotification: true
         });
-        window.__adn_onesignal_ready = true;
+        window.__onesignal_ready = true;
       } catch (e) {
-        window.__adn_onesignal_ready = false;
-        window.__adn_onesignal_error = String(e && (e.message || e) || e);
+        console.warn("OneSignal init failed:", e);
+        window.__onesignal_ready = false;
       }
     });
   </script>
 </head>
 
 <body>
-  <!-- Gate PIN -->
-  <div id="pinOverlay" class="overlay" style="display:none">
-    <div class="modal">
-      <h2>Accès livreur</h2>
-      <p>Entre le code pour ouvrir l’espace pro.</p>
-      <input id="pinInput" inputmode="numeric" maxlength="6" placeholder="Code" />
-      <button id="pinBtn" class="btn primary" style="width:100%;margin-top:10px">Ouvrir</button>
-      <p id="pinErr" class="p" style="display:none;color:#ffb1b1;margin-top:10px">Code incorrect.</p>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="brand">
+        <img src="./assets/logo.png" alt="Apéro de Nuit 66" class="logo" />
+        <div class="title">APERO<br><span>DE NUIT</span></div>
+      </div>
+      <div class="pill" id="onlinePill">
+        <span class="dot"></span> Livreur en ligne
+      </div>
+    </div>
+
+    <h1 class="h1">Espace Livreur</h1>
+
+    <div class="kpiRow">
+      <div class="kpi">
+        <div class="t">GPS livreur</div>
+        <div class="v" id="gpsState">Inactif</div>
+      </div>
+      <div class="kpi">
+        <div class="t">Dernière mise à jour</div>
+        <div class="v" id="lastPing">à l'instant</div>
+      </div>
+      <div class="kpi">
+        <div class="t">Demandes</div>
+        <div class="v" id="pendingCount">0</div>
+      </div>
+
+      <div class="kpi">
+        <div class="t">Notifications</div>
+        <div class="v" id="notifState">—</div>
+      </div>
+    </div>
+
+    <button id="btnNotif" class="btn secondary" style="width:100%;margin-top:12px">Activer notifications</button>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+      <button class="btn" id="btnStart">Activer GPS</button>
+      <button class="btn danger" id="btnStop" disabled>Arrêter GPS</button>
+      <button class="btn ghost" id="btnCenter">Recentrer</button>
+    </div>
+
+    <div class="hint" id="hint"></div>
+
+    <div class="mapBox">
+      <div id="map"></div>
     </div>
   </div>
 
-  <main id="app" style="display:none">
-    <header class="topbar">
-      <div class="brand">
-        <img alt="Apéro de Nuit 66" src="https://raw.githubusercontent.com/bullyto/apero/main/assets/logo-header.png">
-      </div>
-      <div class="badge"><span class="dot"></span><span id="driverStatus">Livreur en ligne</span></div>
-    </header>
-
-    <section class="card">
-      <h1 class="h1" style="margin-bottom:6px">Espace Livreur</h1>
-
-      <div class="kpiRow" style="margin-top:12px">
-        <div class="kpi">
-          <div class="t">GPS livreur</div>
-          <div class="v" id="gpsState">—</div>
-        </div>
-        <div class="kpi">
-          <div class="t">Dernière mise à jour</div>
-          <div class="v" id="lastUpdate">—</div>
-        </div>
-        <div class="kpi">
-          <div class="t">Demandes</div>
-          <div class="v" id="pendingCount">0</div>
-        </div>
-        <div class="kpi">
-          <div class="t">Notifications</div>
-          <div class="v" id="pushState">—</div>
-        </div>
-      </div>
-
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
-        <button id="btnPushEnable" class="btn secondary" style="flex:1;min-width:220px">Activer notifications</button>
-        <button id="btnGps" class="btn btnSmall" style="flex:1;min-width:220px">Activer GPS</button>
-        <button id="btnGpsStop" class="btn btnSmall btnDanger" disabled>Arrêter GPS</button>
-        <button id="btnRecenter" class="btn secondary" style="flex:1;min-width:220px">Recentrer</button>
-      </div>
-
-      <!-- DEBUG (visible) -->
-      <div class="p" id="pushDebug" style="margin-top:10px;opacity:.85;font-size:12px;word-break:break-word"></div>
-
-      <div class="mapWrap">
-        <div id="map"></div>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2 class="h1" style="margin-bottom:6px">Demandes</h2>
-      <p class="p">Les demandes “pending” apparaissent ici. Clique pour accepter/refuser.</p>
-      <div id="pendingList" class="list"></div>
-      <div id="activeList" class="list" style="margin-top:12px"></div>
-    </section>
-  </main>
-
   <script type="module" src="./driver.js"></script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </body>
 </html>
