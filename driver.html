@@ -14,6 +14,21 @@
   <link rel="stylesheet" href="./style.css">
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+  <!-- OneSignal Web Push (v16) -->
+  <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+  <script>
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
+    OneSignalDeferred.push(async function(OneSignal) {
+      await OneSignal.init({
+        appId: "639b5a31-e09f-4d34-ad0f-d111d66a14ac",
+        // IMPORTANT: GitHub Pages "project pages" => service worker doit être référencé depuis la racine de l'origin
+        // Notre SW est à: https://bullyto.github.io/maps/sw.js
+        serviceWorkerPath: "maps/sw.js",
+        serviceWorkerParam: { scope: "/maps/" },
+      });
+    });
+  </script>
 </head>
 <body>
   <!-- Gate PIN -->
@@ -21,14 +36,13 @@
     <div class="modal">
       <h2>Accès livreur</h2>
       <p>Entre le code pour ouvrir l’espace pro.</p>
-      <input id="pinInput" class="input" inputmode="numeric" maxlength="8" placeholder="Code">
-      <div style="height:10px"></div>
-      <button id="pinBtn" class="btn">Déverrouiller</button>
-      <div id="pinErr" class="notice" style="display:none;margin-top:12px">Code incorrect.</div>
+      <input id="pinInput" inputmode="numeric" maxlength="6" placeholder="Code" />
+      <button id="pinBtn" class="btn primary" style="width:100%;margin-top:10px">Ouvrir</button>
+      <p id="pinErr" class="p" style="display:none;color:#ffb1b1;margin-top:10px">Code incorrect.</p>
     </div>
   </div>
 
-  <div class="wrap" id="app" style="display:none">
+  <main id="app" style="display:none">
     <header class="topbar">
       <div class="brand">
         <img alt="Apéro de Nuit 66" src="https://raw.githubusercontent.com/bullyto/apero/main/assets/logo-header.png">
@@ -53,10 +67,19 @@
           <div class="t">Demandes</div>
           <div class="v" id="pendingCount">0</div>
         </div>
+        <div class="kpi">
+          <div class="t">Notifications</div>
+          <div class="v" id="pushState">—</div>
+        </div>
       </div>
 
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
-        <div class="btnRow"><button id="btnGps" class="btn btnSmall">Activer GPS</button><button id="btnGpsStop" class="btn btnSmall btnDanger" disabled>Arrêter GPS</button></div>
+        <button id="btnPushEnable" class="btn secondary" style="flex:1;min-width:220px">Activer notifications</button>
+
+        <div class="btnRow">
+          <button id="btnGps" class="btn btnSmall" style="flex:1;min-width:220px">Activer GPS</button>
+          <button id="btnGpsStop" class="btn btnSmall btnDanger" disabled>Arrêter GPS</button>
+        </div>
         <button id="btnRecenter" class="btn secondary" style="flex:1;min-width:220px">Recentrer</button>
       </div>
 
@@ -66,27 +89,15 @@
     </section>
 
     <section class="card">
-      <h2 class="h1" style="font-size:18px;margin-bottom:10px">Demandes & suivis</h2>
+      <h2 class="h1" style="margin-bottom:6px">Demandes</h2>
+      <p class="p">Les demandes “pending” apparaissent ici. Clique pour accepter/refuser.</p>
 
-      <div class="notice" style="margin-top:0">
-        Astuce : <b>+5 / -5</b> ajuste le temps (max 30 min). <b>Stop</b> coupe immédiatement.
-      </div>
-
-      <div style="margin-top:12px">
-        <div class="p" style="font-weight:900;margin-bottom:8px">En attente</div>
-        <div id="listPending" class="list"></div>
-      </div>
-
-      <div style="margin-top:14px">
-        <div class="p" style="font-weight:900;margin-bottom:8px">Actifs</div>
-        <div id="listActive" class="list"></div>
-      </div>
+      <div id="pendingList" class="list"></div>
+      <div id="activeList" class="list" style="margin-top:12px"></div>
     </section>
-  </div>
+  </main>
 
-  <div class="legal">L’abus d’alcool est dangereux pour la santé, à consommer avec modération.</div>
-
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script type="module" src="./driver.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </body>
 </html>
