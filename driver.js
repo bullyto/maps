@@ -144,7 +144,7 @@ async function registerPushSubscription() {
     }
 
     // Enregistrement côté Cloudflare Worker (D1)
-    await apiFetchJson(API_BASE + "/push/register", {
+    await apiFetchJson(API_BASE + "/pushregister", {
       method: "POST",
       body: JSON.stringify({
         role: "driver",
