@@ -14,6 +14,8 @@
   <link rel="stylesheet" href="./style.css">
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <!-- OneSignal Web Push (Driver) -->
+  <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
 </head>
 <body>
   <!-- Gate PIN -->
@@ -53,34 +55,19 @@
           <div class="t">Demandes</div>
           <div class="v" id="pendingCount">0</div>
         </div>
-        <!-- ✅ NOUVEAU : état notifications -->
         <div class="kpi">
           <div class="t">Notifications</div>
-          <div class="v" id="notifState">—</div>
+          <div class="v" id="pushState">—</div>
         </div>
       </div>
 
-      <!-- ✅ Boutons d’actions -->
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
-        <div class="btnRow">
-          <button id="btnGps" class="btn btnSmall">Activer GPS</button>
-          <button id="btnGpsStop" class="btn btnSmall btnDanger" disabled>Arrêter GPS</button>
-        </div>
-
-        <!-- ✅ NOUVEAU : bouton propre notifications -->
-        <div class="btnRow">
-          <button id="btnNotif" class="btn btnSmall secondary">Activer notifications</button>
-          <button id="btnNotifTest" class="btn btnSmall" style="display:none">Tester</button>
-        </div>
-
+        <button id="btnPushEnable" class="btn secondary" style="flex:1;min-width:220px">Activer notifications</button>
+        <div class="btnRow"><button id="btnGps" class="btn btnSmall">Activer GPS</button><button id="btnGpsStop" class="btn btnSmall btnDanger" disabled>Arrêter GPS</button></div>
         <button id="btnRecenter" class="btn secondary" style="flex:1;min-width:220px">Recentrer</button>
       </div>
 
-      <!-- ✅ Petit message clair (sans casser le design) -->
-      <div id="notifHint" class="notice" style="margin-top:12px;display:none">
-        Astuce : si tu ne reçois rien, vérifie que l’app <b>AND-Suivi</b> est autorisée à notifier
-        et que la batterie n’empêche pas l’exécution en arrière-plan.
-      </div>
+      <div class="p" id="pushDebug" style="margin-top:10px;opacity:.85;font-size:12px;word-break:break-word"></div>
 
       <div class="mapWrap">
         <div id="map"></div>
@@ -109,11 +96,6 @@
   <div class="legal">L’abus d’alcool est dangereux pour la santé, à consommer avec modération.</div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <!-- OneSignal SDK (garde exactement ça côté page) -->
-  <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
-
-  <!-- App -->
   <script type="module" src="./driver.js"></script>
 </body>
 </html>
