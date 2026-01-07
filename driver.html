@@ -2,107 +2,126 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#0b1f2e" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1c2d" />
+  <title>AND-Suivi • Espace Livreur</title>
 
-  <title>AND-Suivi — Espace Livreur</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./style.css?v=20260107" />
 
-  <link rel="manifest" href="https://bullyto.github.io/maps/manifest.webmanifest?v=20260107-2" />
-  <link rel="icon" href="https://bullyto.github.io/maps/icons/icon-192.png?v=20260107-2" />
-  <link rel="apple-touch-icon" href="https://bullyto.github.io/maps/icons/icon-192.png?v=20260107-2" />
-
-  <link rel="stylesheet" href="https://bullyto.github.io/maps/style.css?v=20260107-2" />
-
-  <!-- ✅ Leaflet (la carte du driver) -->
+  <!-- ✅ Leaflet (OBLIGATOIRE pour la mini-carte) -->
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
     crossorigin=""
   />
+
+  <style>
+    /* ✅ Sans ça, la carte peut apparaître vide (hauteur = 0) */
+    .miniMapWrap { overflow: hidden; border-radius: 18px; }
+    #miniMap { height: 260px; width: 100%; }
+
+    /* Leaflet: on garde les contrôles cliquables même dans une carte “mini” */
+    .miniMap .leaflet-control-container .leaflet-top,
+    .miniMap .leaflet-control-container .leaflet-bottom { pointer-events: auto; }
+  </style>
+</head>
+
+<body class="page driverPage">
+
+  <header class="topBar">
+    <div class="topBarLeft">
+      <img id="logoImg" class="logoImg" src="./assets/logo.png" alt="Apéro de nuit" />
+    </div>
+
+    <div class="topBarCenter">
+      <div id="titleText" class="topTitle">APERO de nuit</div>
+      <div class="topSubTitle">Espace Livreur</div>
+    </div>
+
+    <div class="topBarRight">
+      <div id="onlineBadge" class="pill pillOff">Livreur hors ligne</div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="hero">
+      <h1 class="h1">Espace Livreur</h1>
+    </section>
+
+    <section class="card bigCard">
+      <div class="statsGrid">
+        <div class="statBox">
+          <div class="statLabel">GPS livreur</div>
+          <div id="gpsState" class="statValue">—</div>
+        </div>
+
+        <div class="statBox">
+          <div class="statLabel">Dernière mise à jour</div>
+          <div id="lastUpdate" class="statValue">—</div>
+        </div>
+
+        <div class="statBox">
+          <div class="statLabel">Demandes</div>
+          <div id="demandsCount" class="statValue">—</div>
+        </div>
+
+        <div class="statBox">
+          <div class="statLabel">Notifications</div>
+          <div id="notifStatus" class="statValue">—</div>
+        </div>
+      </div>
+
+      <div class="btnRow">
+        <button id="btnStartGps" class="btn primary" type="button">Activer GPS</button>
+        <button id="btnNotif" class="btn secondary" type="button">Activer notifications</button>
+        <button id="btnStopGps" class="btn danger" type="button" disabled>Arrêter GPS</button>
+      </div>
+
+      <div class="btnRow">
+        <button id="btnCenter" class="btn primary" type="button">Recentrer</button>
+      </div>
+
+      <div class="miniMapWrap">
+        <!-- ✅ ID attendu par driver.js -->
+        <div id="miniMap" class="miniMap" aria-label="Carte"></div>
+      </div>
+
+      <div class="legalBar">
+        L’abus d’alcool est dangereux pour la santé, à consommer avec modération.
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="h2">Demandes &amp; suivis</h2>
+
+      <div class="hintBox">
+        Astuce : <b>+5 / -5</b> ajuste le temps (max 30 min). <b>Stop</b> coupe immédiatement.
+      </div>
+
+      <h3 class="h3">En attente</h3>
+      <div id="requestsList" class="list"></div>
+
+      <h3 class="h3">Actifs</h3>
+      <div id="activeList" class="list"></div>
+    </section>
+  </main>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- ✅ Leaflet JS AVANT driver.js (car driver.js utilise L.map) -->
   <script
     src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
 
-  <!-- OneSignal SDK (v16) -->
+  <!-- OneSignal (gardé tel quel) -->
   <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
-</head>
 
-<body class="page page-driver">
-  <header class="topbar">
-    <div class="brand">
-      <img class="brand-logo" src="https://bullyto.github.io/maps/assets/logo.png" alt="Apéro de nuit" />
-      <div class="brand-title">
-        <div class="brand-name">APERO de nuit</div>
-        <div class="brand-sub">Espace Livreur</div>
-      </div>
-    </div>
-
-    <div class="topbar-right">
-      <div class="pill" id="driverOnlinePill" aria-live="polite">
-        <span class="dot"></span>
-        <span id="driverOnlineText">Livreur hors ligne</span>
-      </div>
-    </div>
-  </header>
-
-  <main class="container">
-    <h1 class="h1">Espace Livreur</h1>
-
-    <section class="card">
-      <div class="kpis">
-        <div class="kpi">
-          <div class="kpi-label">GPS livreur</div>
-          <div class="kpi-value" id="gpsStatus">—</div>
-        </div>
-
-        <div class="kpi">
-          <div class="kpi-label">Dernière mise à jour</div>
-          <div class="kpi-value" id="lastUpdate">—</div>
-        </div>
-
-        <div class="kpi">
-          <div class="kpi-label">Demandes</div>
-          <div class="kpi-value" id="pendingCount">—</div>
-        </div>
-
-        <!-- ✅ NOTIFICATIONS -->
-        <div class="kpi">
-          <div class="kpi-label">Notifications</div>
-          <div class="kpi-value" id="notifStatus">—</div>
-        </div>
-      </div>
-
-      <div class="actions">
-        <button class="btn btn-primary" id="btnStartGps" type="button">Activer GPS</button>
-        <button class="btn btn-secondary" id="btnNotif" type="button">Activer notifications</button>
-        <button class="btn btn-danger" id="btnStopGps" type="button" disabled>Arrêter GPS</button>
-        <button class="btn" id="btnRecenter" type="button">Recentrer</button>
-      </div>
-
-      <div class="mini-map-wrap">
-        <div id="miniMap" class="mini-map" aria-label="Mini carte"></div>
-        <div class="alcohol-warning">
-          L’abus d’alcool est dangereux pour la santé, à consommer avec modération.
-        </div>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2 class="h2">Demandes & suivis</h2>
-      <div class="hint">
-        <strong>Astuce :</strong> <b>+5</b> / <b>-5</b> ajuste le temps (max 30 min). <b>Stop</b> coupe immédiatement.
-      </div>
-
-      <div id="pendingList" class="requests"></div>
-
-      <h3 class="h3">Actifs</h3>
-      <div id="activeList" class="requests"></div>
-    </section>
-  </main>
-
-  <script type="module" src="https://bullyto.github.io/maps/driver.js?v=20260107-2"></script>
+  <!-- App driver -->
+  <script type="module" src="./driver.js?v=20260107"></script>
 </body>
 </html>
