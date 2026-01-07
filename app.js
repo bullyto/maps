@@ -32,7 +32,7 @@
 
   async function registerSW() {
     try {
-      reg = await navigator.serviceWorker.register('./sw.js', { scope: './' });
+      reg = await navigator.serviceWorker.register('./OneSignalSDKWorker.js', { scope: './' });
       setStatus('Prêt');
 
       if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });

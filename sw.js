@@ -1,6 +1,3 @@
-// OneSignal (push)
-try { importScripts("https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js"); } catch (e) {}
-
 // ADN66 Suivi Livreur — Service Worker (force update)
 const CACHE = "adn66-suivi-driver-v1767583271";
 const ASSETS = [
