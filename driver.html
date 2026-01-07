@@ -1,93 +1,93 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Suivi Livreur • Apéro de Nuit 66</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0a1b2b" />
+  <title>AND-Suivi • Espace Livreur</title>
 
-  <!-- IMPORTANT: manifest + SW UNIQUEMENT côté livreur -> PWA install = livreur -->
-  <link rel="manifest" href="./manifest.webmanifest">
-  <meta name="theme-color" content="#0b1c2d">
-  <link rel="apple-touch-icon" href="./assets/icon-192.png">
-  <link rel="icon" href="./assets/icon-192.png">
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
 
-  <link rel="stylesheet" href="./style.css">
-  <link rel="preconnect" href="https://unpkg.com">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="./style.css" />
 </head>
-<body>
-  <!-- Gate PIN -->
-  <div id="pinOverlay" class="overlay" style="display:none">
-    <div class="modal">
-      <h2>Accès livreur</h2>
-      <p>Entre le code pour ouvrir l’espace pro.</p>
-      <input id="pinInput" class="input" inputmode="numeric" maxlength="8" placeholder="Code">
-      <div style="height:10px"></div>
-      <button id="pinBtn" class="btn">Déverrouiller</button>
-      <div id="pinErr" class="notice" style="display:none;margin-top:12px">Code incorrect.</div>
-    </div>
-  </div>
 
-  <div class="wrap" id="app" style="display:none">
-    <header class="topbar">
-      <div class="brand">
-        <img alt="Apéro de Nuit 66" src="https://raw.githubusercontent.com/bullyto/apero/main/assets/logo-header.png">
+<body>
+  <div class="bg"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <img src="./assets/logo-owl.png" alt="Apéro de nuit" class="brandLogo" />
+      <div class="brandTxt">
+        <div class="brandName">APERO de nuit</div>
+        <div class="brandSub" id="driverOnlineLabel">Livreur hors ligne</div>
       </div>
-      <div class="badge"><span class="dot"></span><span id="driverStatus">Livreur en ligne</span></div>
-    </header>
+    </div>
+
+    <div class="pill" id="driverOnlinePill">
+      <span class="dot" id="driverOnlineDot"></span>
+      <span id="driverOnlineText">Livreur en ligne</span>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <h1>Espace Livreur</h1>
+    </section>
 
     <section class="card">
-      <h1 class="h1" style="margin-bottom:6px">Espace Livreur</h1>
-      <p class="p"></p>
-
-      <div class="kpiRow" style="margin-top:12px">
+      <div class="kpiRow">
         <div class="kpi">
           <div class="t">GPS livreur</div>
           <div class="v" id="gpsState">—</div>
         </div>
+
         <div class="kpi">
           <div class="t">Dernière mise à jour</div>
           <div class="v" id="lastUpdate">—</div>
         </div>
+
         <div class="kpi">
           <div class="t">Demandes</div>
-          <div class="v" id="pendingCount">0</div>
+          <div class="v" id="pendingCount">—</div>
+        </div>
+
+        <div class="kpi">
+          <div class="t">Notifications</div>
+          <div class="v" id="notifStatus">—</div>
         </div>
       </div>
 
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
-        <div class="btnRow"><button id="btnGps" class="btn btnSmall">Activer GPS</button><button id="btnGpsStop" class="btn btnSmall btnDanger" disabled>Arrêter GPS</button></div>
-        <button id="btnRecenter" class="btn secondary" style="flex:1;min-width:220px">Recentrer</button>
+      <div class="btnRow">
+        <button id="btnGps" class="btn">Activer GPS</button>
+        <button id="btnNotif" class="btn secondary">Activer notifications</button>
+        <button id="btnGpsStop" class="btn danger" disabled>Arrêter GPS</button>
+        <button id="btnRecenter" class="btn ghost">Recentrer</button>
       </div>
 
-      <div class="mapWrap">
-        <div id="map"></div>
+      <div class="miniMapWrap">
+        <div id="miniMap" class="miniMap"></div>
+        <div class="legalStrip">L’abus d’alcool est dangereux pour la santé, à consommer avec modération.</div>
       </div>
     </section>
 
     <section class="card">
-      <h2 class="h1" style="font-size:18px;margin-bottom:10px">Demandes & suivis</h2>
-
-      <div class="notice" style="margin-top:0">
-        Astuce : <b>+5 / -5</b> ajuste le temps (max 30 min). <b>Stop</b> coupe immédiatement.
+      <h2>Demandes &amp; suivis</h2>
+      <div class="hint">
+        Astuce : <b>+5</b> / <b>-5</b> ajuste le temps (max 30 min). <b>Stop</b> coupe immédiatement.
       </div>
 
-      <div style="margin-top:12px">
-        <div class="p" style="font-weight:900;margin-bottom:8px">En attente</div>
-        <div id="listPending" class="list"></div>
-      </div>
-
-      <div style="margin-top:14px">
-        <div class="p" style="font-weight:900;margin-bottom:8px">Actifs</div>
-        <div id="listActive" class="list"></div>
+      <div id="requestsList" class="requestsList">
+        <div class="empty">Aucune demande pour le moment.</div>
       </div>
     </section>
-  </div>
+  </main>
 
-  <div class="legal">L’abus d’alcool est dangereux pour la santé, à consommer avec modération.</div>
-
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- OneSignal SDK (v16) -->
   <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+
+  <!-- App -->
   <script type="module" src="./driver.js"></script>
 </body>
 </html>
