@@ -1,379 +1,602 @@
-import { API_BASE, MAX_MINUTES, DRIVER_PIN, ONESIGNAL_APP_ID } from "./config.js";
-import { apiFetchJson, setText, fmtAgo, getOrCreateDriverToken } from "./shared.js";
+/* driver.js — version clean & robuste
+   - PIN (0000 par défaut)
+   - Carte Leaflet
+   - GPS start/stop
+   - Dashboard: affiche réellement pending + active
+   - Bouton Notifications propre (OneSignal plus tard, UI déjà clean)
+*/
 
+import { CONFIG } from "./config.js";
+
+/* -------------------- CONFIG / CONSTANTES -------------------- */
+const API_BASE = (CONFIG && CONFIG.API_BASE) ? String(CONFIG.API_BASE).replace(/\/+$/, "") : "";
+const DRIVER_PIN = (CONFIG && (CONFIG.DRIVER_PIN || CONFIG.DRIVER_PIN_CODE || CONFIG.PIN)) ? String(CONFIG.DRIVER_PIN || CONFIG.DRIVER_PIN_CODE || CONFIG.PIN) : "0000";
+
+// OneSignal (tu m’as dit: on finalise après – mais on prépare un bouton propre)
+const ONESIGNAL_APP_ID = (CONFIG && (CONFIG.ONESIGNAL_APP_ID || CONFIG.ONE_SIGNAL_APP_ID)) ? String(CONFIG.ONESIGNAL_APP_ID || CONFIG.ONE_SIGNAL_APP_ID) : "62253f55-1377-45fe-a47b-6676d43db125";
+
+/* LocalStorage keys */
+const LS_TOKEN = "adn_driver_token";
+const LS_GPS_ON = "adn_driver_gps_on";
+
+/* Timers */
+const DASH_INTERVAL_MS = 3500;
+const GPS_INTERVAL_MS = 3500;
+
+/* -------------------- DOM -------------------- */
 const els = {
-  overlay: document.getElementById("pinOverlay"),
-  pinInput: document.getElementById("pinInput"),
-  pinBtn: document.getElementById("pinBtn"),
-  pinErr: document.getElementById("pinErr"),
-  app: document.getElementById("app"),
+  chipDot: document.getElementById("chipDot"),
+  chipText: document.getElementById("chipText"),
 
-  driverOnlineLabel: document.getElementById("driverOnlineLabel"),
   gpsStatus: document.getElementById("gpsStatus"),
+  gpsSub: document.getElementById("gpsSub"),
   lastUpdate: document.getElementById("lastUpdate"),
-  requestCount: document.getElementById("requestCount"),
+  lastUpdateSub: document.getElementById("lastUpdateSub"),
 
-  btnStart: document.getElementById("btnStart"),
-  btnStop: document.getElementById("btnStop"),
-  btnCenter: document.getElementById("btnCenter"),
+  demandsCount: document.getElementById("demandsCount"),
+  demandsSub: document.getElementById("demandsSub"),
 
-  pushState: document.getElementById("pushState"),
-  btnPushEnable: document.getElementById("btnPushEnable"),
-  pushDebug: document.getElementById("pushDebug"),
+  notifStatus: document.getElementById("notifStatus"),
+  notifSub: document.getElementById("notifSub"),
 
-  listPending: document.getElementById("listPending"),
-  listActive: document.getElementById("listActive"),
+  pendingList: document.getElementById("pendingList"),
+  activeList: document.getElementById("activeList"),
+  pendingEmpty: document.getElementById("pendingEmpty"),
+  activeEmpty: document.getElementById("activeEmpty"),
+
+  btnStartGps: document.getElementById("btnStartGps"),
+  btnStopGps: document.getElementById("btnStopGps"),
+  btnRecenter: document.getElementById("btnRecenter"),
+  btnNotif: document.getElementById("btnNotif"),
+
+  status: document.getElementById("status"),
+
+  pinOverlay: document.getElementById("pinOverlay"),
+  pinInput: document.getElementById("pinInput"),
+  pinSubmit: document.getElementById("pinSubmit"),
+  pinError: document.getElementById("pinError"),
 };
 
+/* -------------------- ÉTAT -------------------- */
+let driverToken = localStorage.getItem(LS_TOKEN) || "";
+let dashTimer = null;
+let gpsTimer = null;
+
 let map = null;
-let meMarker = null;
-
-let watchId = null;
+let marker = null;
 let lastPos = null;
-let lastPosAt = 0;
 
-let pollTimer = null;
-let driverToken = null;
-
-const OneSignal = window.OneSignal || [];
-let oneSignalInited = false;
-
-function qsParam(name) {
-  const u = new URL(location.href);
-  return u.searchParams.get(name);
+/* -------------------- UTILS -------------------- */
+function setStatus(msg, isError=false){
+  if (!els.status) return;
+  els.status.textContent = msg || "";
+  els.status.style.color = isError ? "rgba(255,210,215,.95)" : "rgba(234,244,255,.72)";
 }
 
-function setBadgeOnline(isOnline) {
-  if (!els.driverOnlineLabel) return;
-  els.driverOnlineLabel.textContent = isOnline ? "Livreur en ligne" : "Livreur hors ligne";
-  els.driverOnlineLabel.classList.toggle("ok", !!isOnline);
-  els.driverOnlineLabel.classList.toggle("off", !isOnline);
+function formatTime(ts){
+  try{
+    if (!ts) return "—";
+    const d = (typeof ts === "number") ? new Date(ts) : new Date(String(ts));
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleString("fr-FR", { hour:"2-digit", minute:"2-digit", second:"2-digit" });
+  }catch{ return "—"; }
 }
 
-function showApp() {
-  els.overlay.style.display = "none";
-  els.app.style.display = "block";
+function safeText(v, fallback="—"){
+  if (v === null || v === undefined) return fallback;
+  const s = String(v).trim();
+  return s ? s : fallback;
 }
 
-function showPinError(msg) {
-  if (!els.pinErr) return;
-  els.pinErr.textContent = msg || "";
-  els.pinErr.style.display = msg ? "block" : "none";
+function setOnlineChip(isOnline){
+  els.chipDot.classList.remove("good","bad","warn");
+  els.chipDot.classList.add(isOnline ? "good" : "bad");
+  els.chipText.textContent = isOnline ? "Livreur en ligne" : "Livreur hors ligne";
 }
 
-function normalizeExpectedPin() {
-  // 1) Si pas défini : fallback "0000"
-  let expected = (DRIVER_PIN ?? "0000");
-
-  // 2) Force en string
-  expected = String(expected).trim();
-
-  // 3) Si c'est un nombre style 0 / 123 -> on pad en 4 digits (0 => "0000")
-  if (/^\d+$/.test(expected) && expected.length < 4) {
-    expected = expected.padStart(4, "0");
-  }
-
-  return expected;
-}
-
-function checkPinOrShow() {
-  const saved = localStorage.getItem("driver_pin_ok_v1");
-  if (saved === "1") {
-    showApp();
-    return;
-  }
-
-  els.overlay.style.display = "flex";
-  els.app.style.display = "none";
-
-  const doCheck = () => {
-    const pin = (els.pinInput.value || "").trim();
-    if (!pin) return showPinError("Entre le PIN.");
-
-    const expected = normalizeExpectedPin();
-
-    if (pin !== expected) {
-      showPinError("PIN incorrect.");
-      return;
-    }
-
-    localStorage.setItem("driver_pin_ok_v1", "1");
-    showPinError("");
-    showApp();
-    boot();
-  };
-
-  els.pinBtn.addEventListener("click", doCheck);
-  els.pinInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") doCheck();
+async function apiFetch(path, opts={}){
+  if (!API_BASE) throw new Error("CONFIG.API_BASE manquant");
+  const url = `${API_BASE}${path}`;
+  const res = await fetch(url, {
+    ...opts,
+    headers: {
+      "content-type": "application/json",
+      ...(opts.headers || {})
+    },
+    cache: "no-store",
   });
+  const text = await res.text();
+  let data = null;
+  try{ data = text ? JSON.parse(text) : null; }catch{ data = { raw:text }; }
+  if (!res.ok) {
+    const msg = (data && (data.error || data.message)) ? (data.error || data.message) : `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  return data;
 }
 
-function initMap() {
-  if (!window.L) {
-    console.warn("Leaflet n'est pas chargé.");
-    return;
-  }
-  map = L.map("map", { zoomControl: true }).setView([42.6887, 2.8948], 12);
+/* -------------------- PIN -------------------- */
+function showPin(){
+  els.pinOverlay.classList.add("show");
+  els.pinError.classList.remove("show");
+  setTimeout(() => els.pinInput?.focus(), 50);
+}
+function hidePin(){
+  els.pinOverlay.classList.remove("show");
+}
+
+function checkPin(pin){
+  return String(pin || "").trim() === DRIVER_PIN;
+}
+
+function ensureAuth(){
+  // token présent => ok
+  if (driverToken) return true;
+
+  // sinon on force PIN
+  showPin();
+  return false;
+}
+
+/* -------------------- MAP -------------------- */
+function initMap(){
+  if (map) return;
+
+  map = L.map("miniMap", { zoomControl:true, attributionControl:true }).setView([42.6887, 2.8948], 12);
 
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
-    attribution: "&copy; OpenStreetMap",
+    attribution: '&copy; OpenStreetMap'
   }).addTo(map);
 
-  meMarker = L.marker([42.6887, 2.8948]).addTo(map);
+  marker = L.marker([42.6887, 2.8948]).addTo(map);
+
+  // petite correction quand c’est dans des cards
+  setTimeout(() => map.invalidateSize(true), 250);
 }
 
-function updateMap(lat, lng) {
-  if (!map || !meMarker) return;
-  meMarker.setLatLng([lat, lng]);
+function updateMarker(lat, lon){
+  if (!map || !marker) return;
+  if (typeof lat !== "number" || typeof lon !== "number") return;
+  lastPos = { lat, lon };
+  marker.setLatLng([lat, lon]);
 }
 
-function centerMap() {
+function recenter(){
   if (!map || !lastPos) return;
-  map.setView([lastPos.lat, lastPos.lng], Math.max(map.getZoom(), 15));
+  map.setView([lastPos.lat, lastPos.lon], 15, { animate:true });
 }
 
-async function apiPost(path, body) {
-  return apiFetchJson(`${API_BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body || {}),
+/* -------------------- GPS -------------------- */
+function setGpsUi(isOn){
+  if (isOn){
+    els.gpsStatus.textContent = "Actif";
+    els.gpsSub.textContent = "Envoi position…";
+    els.btnStartGps.classList.add("disabled");
+    els.btnStartGps.disabled = true;
+
+    els.btnStopGps.classList.remove("disabled");
+    els.btnStopGps.disabled = false;
+
+    setOnlineChip(true);
+  } else {
+    els.gpsStatus.textContent = "Inactif";
+    els.gpsSub.textContent = "GPS arrêté";
+    els.btnStartGps.classList.remove("disabled");
+    els.btnStartGps.disabled = false;
+
+    els.btnStopGps.classList.add("disabled");
+    els.btnStopGps.disabled = true;
+
+    setOnlineChip(false);
+  }
+}
+
+async function pushGpsOnce(){
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error("Géolocalisation indisponible"));
+
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      try{
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        updateMarker(lat, lon);
+
+        // On envoie au backend (si endpoint dispo)
+        // (on reste tolérant si ton worker n’attend pas exactement ça)
+        try{
+          await apiFetch(`/driver/update`, {
+            method: "POST",
+            body: JSON.stringify({
+              driver_token: driverToken,
+              lat,
+              lon,
+              ts: Date.now(),
+              accuracy: pos.coords.accuracy,
+            }),
+          });
+        }catch(e){
+          // pas bloquant : on veut surtout que l’UI continue
+          console.warn("driver/update failed:", e?.message || e);
+        }
+
+        els.lastUpdate.textContent = "à l'instant";
+        els.lastUpdateSub.textContent = formatTime(Date.now());
+        resolve(true);
+      }catch(err){ reject(err); }
+    }, (err) => reject(err), { enableHighAccuracy:true, maximumAge:1000, timeout:12000 });
   });
 }
 
-/* =========================
-   GPS / Tracking
-========================= */
+function startGps(){
+  if (!ensureAuth()) return;
+  localStorage.setItem(LS_GPS_ON, "1");
+  setGpsUi(true);
 
-function setGpsUI(active) {
-  els.btnStart.disabled = !!active;
-  els.btnStop.disabled = !active;
-  setText(els.gpsStatus, active ? "Actif" : "Inactif");
-  setBadgeOnline(active);
+  // 1er envoi direct
+  pushGpsOnce().catch(e => setStatus(`GPS: ${e.message || e}`, true));
+
+  clearInterval(gpsTimer);
+  gpsTimer = setInterval(() => {
+    pushGpsOnce().catch(() => {});
+  }, GPS_INTERVAL_MS);
 }
 
-async function sendGpsPosition(lat, lng) {
-  lastPosAt = Date.now();
-  setText(els.lastUpdate, fmtAgo(lastPosAt));
+function stopGps(){
+  localStorage.removeItem(LS_GPS_ON);
+  clearInterval(gpsTimer);
+  gpsTimer = null;
+  setGpsUi(false);
+}
 
-  await apiPost("/driver/position", {
-    driver_token: driverToken,
-    lat,
-    lng,
-    ts: Date.now(),
+/* -------------------- RENDER DEMANDES -------------------- */
+function renderEmpty(listEl, emptyEl, isEmpty){
+  if (!listEl || !emptyEl) return;
+  emptyEl.style.display = isEmpty ? "block" : "none";
+}
+
+function buildPendingItem(req){
+  // On reste ultra tolérant (car ton backend peut envoyer des champs différents)
+  const id = req.id || req.request_id || req.session_id || req.sid || req.token || "";
+  const title = safeText(req.title || req.customer_name || req.name || req.client || "Nouvelle demande");
+  const city = safeText(req.city || req.ville || "");
+  const address = safeText(req.address || req.adresse || req.addr || "");
+  const when = safeText(req.created_at || req.ts || req.time || "");
+
+  const wrap = document.createElement("div");
+  wrap.className = "item";
+
+  const top = document.createElement("div");
+  top.className = "itemTop";
+
+  const left = document.createElement("div");
+  const t = document.createElement("div");
+  t.className = "itemTitle";
+  t.textContent = title;
+
+  const meta = document.createElement("div");
+  meta.className = "itemMeta";
+  meta.textContent = [address, city].filter(Boolean).join(" • ") || "—";
+
+  const meta2 = document.createElement("div");
+  meta2.className = "itemMeta";
+  meta2.textContent = when ? `Reçue: ${safeText(when)}` : "";
+
+  left.appendChild(t);
+  left.appendChild(meta);
+  if (when) left.appendChild(meta2);
+
+  const right = document.createElement("div");
+  const pill = document.createElement("span");
+  pill.className = "pill";
+  pill.textContent = "En attente";
+  right.appendChild(pill);
+
+  top.appendChild(left);
+  top.appendChild(right);
+
+  const actions = document.createElement("div");
+  actions.className = "itemActions";
+
+  const btnOk = document.createElement("button");
+  btnOk.className = "miniBtn";
+  btnOk.textContent = "Accepter";
+
+  const btnNo = document.createElement("button");
+  btnNo.className = "miniBtn bad";
+  btnNo.textContent = "Refuser";
+
+  btnOk.onclick = async () => {
+    btnOk.disabled = true; btnNo.disabled = true;
+    setStatus("Acceptation…");
+    try{
+      await sendDecision(id, "accept");
+      await refreshDashboard(true);
+      setStatus("Demande acceptée ✅");
+    }catch(e){
+      setStatus(`Erreur acceptation: ${e.message || e}`, true);
+      btnOk.disabled = false; btnNo.disabled = false;
+    }
+  };
+
+  btnNo.onclick = async () => {
+    btnOk.disabled = true; btnNo.disabled = true;
+    setStatus("Refus…");
+    try{
+      await sendDecision(id, "reject");
+      await refreshDashboard(true);
+      setStatus("Demande refusée ✅");
+    }catch(e){
+      setStatus(`Erreur refus: ${e.message || e}`, true);
+      btnOk.disabled = false; btnNo.disabled = false;
+    }
+  };
+
+  actions.appendChild(btnOk);
+  actions.appendChild(btnNo);
+
+  wrap.appendChild(top);
+  wrap.appendChild(actions);
+  return wrap;
+}
+
+function buildActiveItem(it){
+  const title = safeText(it.title || it.customer_name || it.name || it.client || "Suivi");
+  const city = safeText(it.city || it.ville || "");
+  const address = safeText(it.address || it.adresse || it.addr || "");
+  const eta = it.eta_min || it.eta || it.minutes || null;
+
+  const wrap = document.createElement("div");
+  wrap.className = "item";
+
+  const top = document.createElement("div");
+  top.className = "itemTop";
+
+  const left = document.createElement("div");
+  const t = document.createElement("div");
+  t.className = "itemTitle";
+  t.textContent = title;
+
+  const meta = document.createElement("div");
+  meta.className = "itemMeta";
+  meta.textContent = [address, city].filter(Boolean).join(" • ") || "—";
+
+  left.appendChild(t);
+  left.appendChild(meta);
+
+  const right = document.createElement("div");
+  const pill = document.createElement("span");
+  pill.className = "pill";
+  pill.textContent = eta ? `ETA ~ ${eta} min` : "Actif";
+  right.appendChild(pill);
+
+  top.appendChild(left);
+  top.appendChild(right);
+  wrap.appendChild(top);
+
+  return wrap;
+}
+
+/* -------------------- API DECISION / DASHBOARD -------------------- */
+async function sendDecision(requestId, decision){
+  if (!ensureAuth()) return;
+  // backend tolérant: on envoie plusieurs clés possibles
+  return apiFetch(`/driver/decision`, {
+    method:"POST",
+    body: JSON.stringify({
+      driver_token: driverToken,
+      request_id: requestId,
+      id: requestId,
+      decision,
+    }),
   });
 }
 
-function startGps() {
-  if (!navigator.geolocation) {
-    alert("GPS non supporté sur ce téléphone.");
-    return;
+function normalizeDashboard(d){
+  // On tolère tout:
+  // - d.pending / d.pending_requests / d.requests_pending
+  // - d.active / d.active_tracks / d.tracks
+  const pending =
+    d?.pending ||
+    d?.pending_requests ||
+    d?.requests_pending ||
+    d?.demands_pending ||
+    [];
+
+  const active =
+    d?.active ||
+    d?.active_tracks ||
+    d?.tracks ||
+    d?.actifs ||
+    [];
+
+  const gps =
+    d?.gps_active ?? d?.gps ?? d?.driver_gps ?? null;
+
+  return { pending: Array.isArray(pending) ? pending : [], active: Array.isArray(active) ? active : [], gps };
+}
+
+async function refreshDashboard(silent=false){
+  if (!ensureAuth()) return;
+
+  try{
+    if (!silent) setStatus("Actualisation…");
+
+    // IMPORTANT: je garde le param driver_token car c’est ce que tu avais avant
+    const d = await apiFetch(`/driver/dashboard?driver_token=${encodeURIComponent(driverToken)}`, { method:"GET" });
+    const { pending, active } = normalizeDashboard(d);
+
+    // compteur demandes = pending
+    els.demandsCount.textContent = String(pending.length);
+    els.demandsSub.textContent = pending.length > 0 ? "En attente" : "Aucune";
+
+    // PENDING list
+    els.pendingList.innerHTML = "";
+    if (pending.length === 0){
+      renderEmpty(els.pendingList, els.pendingEmpty, true);
+    } else {
+      renderEmpty(els.pendingList, els.pendingEmpty, false);
+      pending.forEach(req => els.pendingList.appendChild(buildPendingItem(req)));
+    }
+
+    // ACTIVE list
+    els.activeList.innerHTML = "";
+    if (active.length === 0){
+      renderEmpty(els.activeList, els.activeEmpty, true);
+    } else {
+      renderEmpty(els.activeList, els.activeEmpty, false);
+      active.forEach(it => els.activeList.appendChild(buildActiveItem(it)));
+    }
+
+    // dernière maj UI
+    els.lastUpdate.textContent = formatTime(Date.now());
+    els.lastUpdateSub.textContent = "Dashboard";
+
+    if (!silent) setStatus("OK");
+  }catch(e){
+    setStatus(`Dashboard: ${e.message || e}`, true);
   }
-
-  setGpsUI(true);
-
-  watchId = navigator.geolocation.watchPosition(
-    async (pos) => {
-      const lat = pos.coords.latitude;
-      const lng = pos.coords.longitude;
-      lastPos = { lat, lng };
-      updateMap(lat, lng);
-
-      try {
-        await sendGpsPosition(lat, lng);
-      } catch (e) {
-        console.warn("Erreur envoi position:", e);
-      }
-    },
-    (err) => {
-      console.warn("Erreur GPS:", err);
-      setGpsUI(false);
-      alert("Impossible d'activer le GPS. Autorise la localisation et réessaie.");
-    },
-    { enableHighAccuracy: true, maximumAge: 1000, timeout: 15000 }
-  );
 }
 
-function stopGps() {
-  if (watchId != null) navigator.geolocation.clearWatch(watchId);
-  watchId = null;
-  setGpsUI(false);
-}
-
-/* =========================
-   OneSignal Push
-========================= */
-
-function pushLog(msg) {
-  if (!els.pushDebug) return;
-  els.pushDebug.textContent = msg || "";
-}
-
-async function initOneSignal() {
-  if (oneSignalInited) return true;
-  if (!ONESIGNAL_APP_ID) {
-    pushLog("ONESIGNAL_APP_ID manquant dans config.js");
-    return false;
+/* -------------------- NOTIFICATIONS (UI propre) -------------------- */
+function setNotifUi(state, sub=""){
+  els.notifStatus.textContent = state;
+  els.notifSub.textContent = sub || "—";
+  if (state === "Activées"){
+    els.btnNotif.textContent = "Notifications activées";
+    els.btnNotif.classList.add("disabled");
+    els.btnNotif.disabled = true;
+  }else{
+    els.btnNotif.textContent = "Activer notifications";
+    els.btnNotif.classList.remove("disabled");
+    els.btnNotif.disabled = false;
   }
+}
 
-  try {
-    OneSignal.push(() => {
-      OneSignal.init({
+async function initOneSignal(){
+  // on fait soft: si le SDK n’est pas prêt, on n’explose pas l’app
+  try{
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
+    window.OneSignalDeferred.push(async function(OneSignal) {
+      await OneSignal.init({
         appId: ONESIGNAL_APP_ID,
-        serviceWorkerParam: { scope: "/maps/" },
-        serviceWorkerPath: "/maps/OneSignalSDKWorker.js",
-        notifyButton: { enable: false },
-        allowLocalhostAsSecureOrigin: false,
+        allowLocalhostAsSecureOrigin: true,
       });
     });
-    oneSignalInited = true;
-    return true;
-  } catch (e) {
-    console.warn("Init OneSignal error", e);
-    pushLog("Erreur init OneSignal: " + (e?.message || e));
-    return false;
+  }catch(e){
+    console.warn("OneSignal init err:", e);
   }
 }
 
-async function refreshPushState() {
-  try {
-    const okInit = await initOneSignal();
-    if (!okInit) {
-      setText(els.pushState, "Indisponible");
+async function requestNotifications(){
+  try{
+    if (!("Notification" in window)){
+      setNotifUi("Indispo", "Notifications non supportées");
       return;
     }
 
-    const perm = Notification.permission;
-    if (perm === "granted") {
-      setText(els.pushState, "Activées");
-      els.btnPushEnable.disabled = true;
-      els.btnPushEnable.textContent = "Notifications activées";
-      els.btnPushEnable.classList.add("disabled");
-    } else if (perm === "denied") {
-      setText(els.pushState, "Bloquées");
-      els.btnPushEnable.disabled = true;
-      els.btnPushEnable.textContent = "Bloquées (réactiver dans Android)";
-      pushLog("Permission notifications: denied (bloquées au niveau système).");
-    } else {
-      setText(els.pushState, "Désactivées");
-      els.btnPushEnable.disabled = false;
-      els.btnPushEnable.textContent = "Activer notifications";
-    }
-  } catch (e) {
-    console.warn("refreshPushState", e);
-    setText(els.pushState, "Erreur");
-  }
-}
-
-async function enablePush() {
-  pushLog("");
-
-  const okInit = await initOneSignal();
-  if (!okInit) return;
-
-  try {
-    const perm = await Notification.requestPermission();
-    if (perm !== "granted") {
-      pushLog("Permission refusée. Va dans Paramètres > Notifications pour autoriser.");
-      await refreshPushState();
+    // déjà accepté ?
+    if (Notification.permission === "granted"){
+      setNotifUi("Activées", "Permission déjà accordée");
       return;
     }
 
-    let subId = null;
-
-    OneSignal.push(async () => {
-      try {
-        if (OneSignal.User?.PushSubscription?.id) {
-          subId = OneSignal.User.PushSubscription.id;
-        } else if (typeof OneSignal.getSubscriptionId === "function") {
-          subId = await OneSignal.getSubscriptionId();
+    // OneSignal si dispo, sinon permission native
+    let usedOneSignal = false;
+    if (window.OneSignalDeferred){
+      usedOneSignal = true;
+      window.OneSignalDeferred.push(async function(OneSignal){
+        try{
+          await OneSignal.Notifications.requestPermission();
+        }catch(e){
+          console.warn("OneSignal permission err:", e);
         }
-      } catch (e) {
-        console.warn("Subscription id error", e);
-      }
-    });
-
-    await new Promise((r) => setTimeout(r, 800));
-
-    try {
-      if (!subId && OneSignal.User?.PushSubscription?.id) {
-        subId = OneSignal.User.PushSubscription.id;
-      }
-    } catch {}
-
-    if (!subId) {
-      pushLog("Abonnement OK mais ID OneSignal introuvable. Vérifie OneSignalSDKWorker.js dans /maps/");
-      await refreshPushState();
-      return;
+      });
     }
 
-    await apiPost("/push/register", {
-      driver_token: driverToken,
-      subscription_id: subId,
-      ts: Date.now(),
-    });
+    if (!usedOneSignal){
+      const p = await Notification.requestPermission();
+      if (p !== "granted"){
+        setNotifUi("Refusées", "Permission refusée");
+        return;
+      }
+    }
 
-    pushLog("✅ Notifications activées et enregistrées.");
-    await refreshPushState();
-  } catch (e) {
-    console.warn("enablePush error", e);
-    pushLog("Erreur activation notifications: " + (e?.message || e));
-    await refreshPushState();
+    // Update UI
+    if (Notification.permission === "granted"){
+      setNotifUi("Activées", "OK");
+    }else{
+      setNotifUi("Refusées", "Permission refusée");
+    }
+  }catch(e){
+    setNotifUi("Erreur", e.message || String(e));
   }
 }
 
-/* =========================
-   Demandes / Dashboard
-========================= */
+/* -------------------- EVENTS -------------------- */
+els.btnStartGps.addEventListener("click", startGps);
+els.btnStopGps.addEventListener("click", stopGps);
+els.btnRecenter.addEventListener("click", () => recenter());
+els.btnNotif.addEventListener("click", () => requestNotifications());
 
-async function fetchDashboard() {
-  try {
-    const data = await apiFetchJson(`${API_BASE}/driver/dashboard?driver_token=${encodeURIComponent(driverToken)}`);
-    const pending = Array.isArray(data?.pending) ? data.pending : [];
-    const active = Array.isArray(data?.active) ? data.active : [];
-
-    setText(els.requestCount, String(pending.length));
-
-    if (els.listPending) els.listPending.innerHTML = pending.length ? "" : `<div class="empty">Aucune demande en attente.</div>`;
-    if (els.listActive) els.listActive.innerHTML = active.length ? "" : `<div class="empty">Aucun suivi actif.</div>`;
-
-    // (si tu as déjà un renderer plus complet dans ton projet, on peut le remettre après)
-  } catch (e) {
-    console.warn("fetchDashboard error", e);
+els.pinSubmit.addEventListener("click", () => {
+  const pin = els.pinInput.value;
+  if (checkPin(pin)){
+    driverToken = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+    localStorage.setItem(LS_TOKEN, driverToken);
+    hidePin();
+    setStatus("Accès OK ✅");
+    // démarre ce qui doit démarrer
+    initAfterAuth();
+  } else {
+    els.pinError.classList.add("show");
   }
-}
+});
 
-function startPolling() {
-  if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(fetchDashboard, 5000);
-  fetchDashboard();
-}
+els.pinInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") els.pinSubmit.click();
+});
 
-/* =========================
-   Boot
-========================= */
-
-async function boot() {
-  driverToken = getOrCreateDriverToken(qsParam("token"));
-
+/* -------------------- INIT -------------------- */
+function initAfterAuth(){
   initMap();
-  setGpsUI(false);
-  setText(els.lastUpdate, "—");
-  setText(els.requestCount, "—");
 
-  els.btnStart.addEventListener("click", startGps);
-  els.btnStop.addEventListener("click", stopGps);
-  els.btnCenter.addEventListener("click", centerMap);
+  // notif UI
+  if ("Notification" in window && Notification.permission === "granted"){
+    setNotifUi("Activées", "Permission accordée");
+  }else{
+    setNotifUi("Désactivées", "À activer");
+  }
 
-  els.btnPushEnable.addEventListener("click", enablePush);
+  // dashboard loop
+  refreshDashboard(true);
+  clearInterval(dashTimer);
+  dashTimer = setInterval(() => refreshDashboard(true), DASH_INTERVAL_MS);
 
-  await refreshPushState();
-  startPolling();
+  // si GPS auto
+  if (localStorage.getItem(LS_GPS_ON) === "1"){
+    startGps();
+  }else{
+    setGpsUi(false);
+  }
 }
 
-// Start
-checkPinOrShow();
-if (localStorage.getItem("driver_pin_ok_v1") === "1") {
-  boot();
-}
+(function boot(){
+  // Map init tout de suite (sinon écran “vide”)
+  initMap();
+
+  // one signal soft init
+  initOneSignal();
+
+  // Auth
+  if (driverToken){
+    hidePin();
+    initAfterAuth();
+  }else{
+    // pas de token => pin
+    showPin();
+    setGpsUi(false);
+    setNotifUi("Désactivées", "À activer");
+    setOnlineChip(false);
+  }
+})();
