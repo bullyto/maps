@@ -1,154 +1,81 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AND-Suivi — Espace Livreur</title>
+<title>Suivi de commande</title>
 
-  <!-- Ton CSS existant (adapte le nom si besoin) -->
-  <link rel="stylesheet" href="./style.css" />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="stylesheet" href="./style.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 
-  <!-- PWA -->
-  <link rel="manifest" href="./manifest.webmanifest" />
-  <meta name="theme-color" content="#0b1b2b" />
-
-  <!-- OneSignal SDK (v16) -->
-  <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
-
-  <!-- Config de ton projet -->
-  <script src="./config.js" defer></script>
-
-  <!-- App driver -->
-  <script src="./driver.js" defer></script>
-
-  <style>
-    /* Patch UI uniquement pour rendre propre si ton style.css ne couvre pas tout */
-    .btn {
-      appearance: none;
-      border: 0;
-      border-radius: 14px;
-      padding: 14px 16px;
-      font-weight: 700;
-      width: 100%;
-      cursor: pointer;
-      transition: transform .05s ease;
-    }
-    .btn:active { transform: scale(0.99); }
-    .btn-primary { background: rgba(70,140,210,.35); color: #fff; border: 1px solid rgba(120,190,255,.35); }
-    .btn-danger { background: rgba(220,70,70,.25); color: #fff; border: 1px solid rgba(255,120,120,.25); }
-    .btn-ghost { background: rgba(255,255,255,.06); color: #fff; border: 1px solid rgba(255,255,255,.10); }
-    .btn:disabled { opacity: .55; cursor: not-allowed; }
-
-    .card {
-      background: rgba(255,255,255,.06);
-      border: 1px solid rgba(255,255,255,.10);
-      border-radius: 22px;
-      padding: 16px;
-      margin: 12px 0;
-      backdrop-filter: blur(10px);
-    }
-    .row { display: flex; gap: 10px; }
-    .row > * { flex: 1; }
-    .muted { opacity: .8; }
-    .pill {
-      display:inline-flex; align-items:center; gap:8px;
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: rgba(255,255,255,.08);
-      border: 1px solid rgba(255,255,255,.10);
-      font-weight: 700;
-      white-space: nowrap;
-    }
-    .dot { width: 10px; height: 10px; border-radius: 50%; background: #999; display:inline-block; }
-    .dot-ok { background: #4ade80; }
-    .dot-warn { background: #fbbf24; }
-    .dot-off { background: #94a3b8; }
-    .kpi-title { font-size: 14px; opacity: .75; margin-bottom: 6px; }
-    .kpi-value { font-size: 20px; font-weight: 800; }
-  </style>
 </head>
-
 <body>
-  <div class="app">
-
-    <!-- Header (tu peux garder ton header existant, ceci est “safe”) -->
-    <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-      <div style="display:flex; align-items:center; gap:10px;">
-        <img src="./assets/logo.png" alt="Apéro de Nuit" style="width:34px; height:34px; border-radius:10px; object-fit:cover;"
-             onerror="this.style.display='none';" />
-        <div style="font-weight:900; letter-spacing:.2px;">APERO de nuit</div>
-      </div>
-
-      <div class="pill" id="pillOnline">
-        <span class="dot dot-off" id="dotOnline"></span>
-        <span id="txtOnline">Livreur hors ligne</span>
-      </div>
-    </div>
-
-    <h1 style="margin: 10px 4px 6px; font-size: 40px; letter-spacing:.2px;">Espace Livreur</h1>
-
-    <div class="row">
-      <div class="card">
-        <div class="kpi-title">GPS livreur</div>
-        <div class="kpi-value" id="gpsState">—</div>
-      </div>
-      <div class="card">
-        <div class="kpi-title">Dernière mise à jour</div>
-        <div class="kpi-value" id="lastUpdate">—</div>
-      </div>
-      <div class="card">
-        <div class="kpi-title">Demandes</div>
-        <div class="kpi-value" id="requestsCount">—</div>
-      </div>
-    </div>
-
-    <!-- Notifications (propre) -->
-    <div class="card">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-        <div style="font-weight:900; font-size:18px;">Notifications</div>
-        <div class="pill" id="pillNotif">
-          <span class="dot dot-off" id="dotNotif"></span>
-          <span id="notifState">—</span>
+  <div class="container">
+    <div class="topbar">
+      <div class="brand">
+        <span class="dotlive" aria-hidden="true"></span>
+        <div style="min-width:0">
+          <h1>Apéro de Nuit</h1>
+          <p>Suivi de commande • sécurisé • temps réel</p>
         </div>
       </div>
-
-      <div class="muted" style="margin-top:10px; line-height:1.35;">
-        Objectif : quand un client envoie une demande, tu reçois une notification même PWA fermée.
-      </div>
-
-      <div id="notifHint" class="muted" style="margin-top:10px;"></div>
-
-      <div style="margin-top:12px;" class="row">
-        <button class="btn btn-primary" id="btnEnableNotif">Activer notifications</button>
-        <button class="btn btn-ghost" id="btnTestNotif">Tester</button>
-      </div>
+      <button id="btnBack" class="btn secondary">Retour</button>
     </div>
 
-    <!-- Actions GPS -->
     <div class="card">
       <div class="row">
-        <button class="btn btn-primary" id="btnStartGps">Activer GPS</button>
-        <button class="btn btn-danger" id="btnStopGps" disabled>Arrêter GPS</button>
+        <div>
+          <div class="small">Statut</div>
+          <h2 id="statusTitle" style="margin-top:2px">Prêt</h2>
+        </div>
+        <div id="statusPill" class="pill" data-status="expired">—</div>
       </div>
-      <div style="margin-top:10px;">
-        <button class="btn btn-ghost" id="btnRecenter">Recentrer</button>
-      </div>
-    </div>
 
-    <!-- Map container (ton code Leaflet existant peut s’y accrocher) -->
-    <div class="card" style="padding:0; overflow:hidden;">
-      <div id="map" style="height: 320px; width:100%;"></div>
+      <div class="field">
+        <label>Ton nom (ce que le livreur verra)</label>
+        <input id="clientName" maxlength="24" placeholder="Ex: Lucas" autocomplete="nickname">
+      </div>
+
+      <div style="margin-top:12px" class="row">
+        <button id="btnRequest" class="btn" style="flex:1">Suivre ma commande</button>
+      </div>
+
+      <p class="small" id="hint" style="margin-top:10px">
+        1) Tu partages ta position (obligatoire). 2) Le livreur accepte/refuse. 3) Suivi en direct pendant <b>30 min max</b>.
+      </p>
     </div>
 
     <div class="card">
-      <h2 style="margin: 0 0 6px;">Demandes & suivis</h2>
-      <div class="muted" style="line-height:1.35;">
-        Astuce : <b>+5 / -5</b> ajuste le temps (max 30 min). <b>Stop</b> coupe immédiatement.
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <h2 style="margin-bottom:4px">Carte</h2>
+          <div class="small">Ton point (vert) + livreur (bleu) quand c'est actif.</div>
+        </div>
+        <div class="row">
+          <button id="btnCenter" class="btn secondary">Recentrer</button>
+        </div>
       </div>
-      <div id="requestsList" style="margin-top:12px;"></div>
+      <div class="mapWrap"><div id="map"></div></div>
+      <div class="small" id="footerInfo" style="margin-top:10px">—</div>
     </div>
 
-    <div style="height: 20px;"></div>
+    <div class="card">
+      <h2>Confiance & confidentialité</h2>
+      <ul class="small" style="margin:10px 0 0; padding-left:18px">
+        <li>Les clients ne se voient jamais entre eux.</li>
+        <li>Tu vois uniquement la position du livreur, jamais son itinéraire complet.</li>
+        <li>Le livreur peut couper l’accès à tout moment.</li>
+        <li>Le suivi s’arrête automatiquement à la fin du temps imparti.</li>
+      </ul>
+    </div>
   </div>
+
+  <div class="legal">L’abus d’alcool est dangereux pour la santé, à consommer avec modération.</div>
+
+<script type="module" src="./client.js"></script>
 </body>
 </html>
