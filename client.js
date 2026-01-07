@@ -20,7 +20,6 @@ const clientId = getOrCreateClientId();
 
 let map, markerClient, markerDriver;
 let pollTimer = null;
-let requestInFlight = false;
 let watchId = null;
 let currentSession = localStorage.getItem(LS.session) || "";
 
@@ -161,27 +160,6 @@ async function startWatchPosition() {
   }, () => {}, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
 }
 
-// Récupère une position GPS une seule fois. Retourne {lat,lng,acc} ou null.
-// On ne bloque pas l'envoi de la demande si le GPS est indisponible (le push au livreur doit
-// quand même fonctionner).
-async function getGpsOnce({ timeout = 12000, maximumAge = 15000, enableHighAccuracy = true } = {}) {
-  if (!('geolocation' in navigator)) return null;
-  return await new Promise((resolve) => {
-    try {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          if (!pos || !pos.coords) return resolve(null);
-          resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy });
-        },
-        (_err) => resolve(null),
-        { enableHighAccuracy, maximumAge, timeout }
-      );
-    } catch (_e) {
-      resolve(null);
-    }
-  });
-}
-
 async function requestFlow() {
   const name = (els.name.value || "").trim();
   if (!name) {
@@ -191,17 +169,29 @@ async function requestFlow() {
   }
   localStorage.setItem(LS.name, name);
 
-  // 1) tenter d’obtenir une position instantanée (OPTIONNELLE)
-  // Le push au livreur ne doit jamais être bloqué par le GPS.
-  const gps = await getGpsOnce({ timeout: 15000, maximumAge: 0, enableHighAccuracy: true });
-  const lat = gps ? gps.lat : null;
-  const lng = gps ? gps.lng : null;
-  const acc = gps ? gps.acc : null;
-
-  if (gps) {
-    markerClient.setLatLng([lat, lng]);
-    map.setView([lat, lng], 15);
+  // Demande de position obligatoire
+  if (!("geolocation" in navigator)) {
+    alert("GPS indisponible sur cet appareil.");
+    return;
   }
+
+  // 1) obtenir une position instantanée (obligatoire)
+  const pos = await new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+  }).catch(() => null);
+
+  // GPS: idéalement on l’a, mais on ne bloque plus l’envoi si l’utilisateur refuse.
+  let lat = null, lng = null, acc = null;
+  if (!pos) {
+    console.warn("[client] GPS indisponible/refusé: demande envoyée sans position.");
+  } else {
+    lat = pos.coords.latitude;
+    lng = pos.coords.longitude;
+    acc = pos.coords.accuracy;
+  }
+
+  markerClient.setLatLng([lat, lng]);
+  map.setView([lat, lng], 15);
 
   // 2) créer/reprendre session (anti-spam côté worker)
   const res = await apiFetchJson(`${API_BASE}/client/request`, {
@@ -254,26 +244,9 @@ function boot() {
     setButtonState("idle");
   }
 
-  els.btnRequest.addEventListener("click", () => {
-  // Anti multi-clic immédiat (le client clique 3 fois sinon)
-  if (requestInFlight) return;
-  requestInFlight = true;
-
-  // Blocage instantané UI
-  btnRequest.disabled = true;
-  const oldLabel = btnRequest.textContent;
-  btnRequest.textContent = "Demande envoyée…";
-
-  requestFlow()
-    .catch((e) => {
-      console.warn(e);
-      alert("Impossible d’envoyer la demande. Autorise le GPS puis réessaie.");
-      // si la demande n'a pas pu partir, on réactive
-      requestInFlight = false;
-      btnRequest.disabled = false;
-      btnRequest.textContent = oldLabel || "Suivre ma commande";
-    });
-});
+  els.btnRequest.addEventListener("click", () => requestFlow().catch(() => {
+    alert("Autorise le GPS pour activer le suivi.");
+  }));
   els.btnReset.addEventListener("click", resetSession);
 }
 
