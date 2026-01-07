@@ -161,6 +161,27 @@ async function startWatchPosition() {
   }, () => {}, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
 }
 
+// Récupère une position GPS une seule fois. Retourne {lat,lng,acc} ou null.
+// On ne bloque pas l'envoi de la demande si le GPS est indisponible (le push au livreur doit
+// quand même fonctionner).
+async function getGpsOnce({ timeout = 12000, maximumAge = 15000, enableHighAccuracy = true } = {}) {
+  if (!('geolocation' in navigator)) return null;
+  return await new Promise((resolve) => {
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (!pos || !pos.coords) return resolve(null);
+          resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy });
+        },
+        (_err) => resolve(null),
+        { enableHighAccuracy, maximumAge, timeout }
+      );
+    } catch (_e) {
+      resolve(null);
+    }
+  });
+}
+
 async function requestFlow() {
   const name = (els.name.value || "").trim();
   if (!name) {
@@ -170,28 +191,17 @@ async function requestFlow() {
   }
   localStorage.setItem(LS.name, name);
 
-  // Demande de position obligatoire
-  if (!("geolocation" in navigator)) {
-    alert("GPS indisponible sur cet appareil.");
-    return;
+  // 1) tenter d’obtenir une position instantanée (OPTIONNELLE)
+  // Le push au livreur ne doit jamais être bloqué par le GPS.
+  const gps = await getGpsOnce({ timeout: 15000, maximumAge: 0, enableHighAccuracy: true });
+  const lat = gps ? gps.lat : null;
+  const lng = gps ? gps.lng : null;
+  const acc = gps ? gps.acc : null;
+
+  if (gps) {
+    markerClient.setLatLng([lat, lng]);
+    map.setView([lat, lng], 15);
   }
-
-  // 1) obtenir une position instantanée (obligatoire)
-  const pos = await new Promise((resolve, reject) => {
-    navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
-  }).catch(() => null);
-
-  if (!pos) {
-    alert("Impossible d’obtenir votre position. Autorise le GPS pour activer le suivi.");
-    return;
-  }
-
-  const lat = pos.coords.latitude;
-  const lng = pos.coords.longitude;
-  const acc = pos.coords.accuracy;
-
-  markerClient.setLatLng([lat, lng]);
-  map.setView([lat, lng], 15);
 
   // 2) créer/reprendre session (anti-spam côté worker)
   const res = await apiFetchJson(`${API_BASE}/client/request`, {
