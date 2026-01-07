@@ -1,347 +1,95 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <meta name="theme-color" content="#0b1c2d" />
-  <title>Apéro de Nuit • Espace Livreur</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Suivi Livreur • Apéro de Nuit 66</title>
 
-  <!-- Leaflet -->
-  <link rel="preconnect" href="https://unpkg.com" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- IMPORTANT: manifest + SW UNIQUEMENT côté livreur -> PWA install = livreur -->
+  <link rel="manifest" href="./manifest.webmanifest">
+  <meta name="theme-color" content="#0b1c2d">
+  <link rel="apple-touch-icon" href="./assets/icon-192.png">
+  <link rel="icon" href="./assets/icon-192.png">
 
-  <!-- OneSignal (on laisse, même si on finalise plus tard) -->
+  <link rel="stylesheet" href="./style.css">
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <!-- OneSignal v16 (page SDK) -->
   <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
-
-  <style>
-    :root{
-      --bg1:#071725;
-      --bg2:#0b2438;
-      --card:rgba(255,255,255,.06);
-      --card2:rgba(255,255,255,.08);
-      --stroke:rgba(255,255,255,.10);
-      --txt:#eaf4ff;
-      --muted:rgba(234,244,255,.72);
-      --muted2:rgba(234,244,255,.55);
-      --accent:#4da3d9;
-      --good:#2bd48f;
-      --bad:#ff4d5f;
-      --warn:#ffcc66;
-      --shadow:0 18px 60px rgba(0,0,0,.35);
-      --radius:26px;
-      --radius2:20px;
-    }
-
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{
-      margin:0;
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      color:var(--txt);
-      background: radial-gradient(1200px 800px at 30% 15%, rgba(77,163,217,.18), transparent 60%),
-                  radial-gradient(900px 700px at 90% 25%, rgba(43,212,143,.10), transparent 55%),
-                  linear-gradient(180deg, var(--bg1), var(--bg2));
-      padding: 18px 14px 24px;
-    }
-
-    .wrap{max-width:760px;margin:0 auto}
-    .topbar{
-      display:flex;align-items:center;justify-content:space-between;
-      gap:10px;margin-bottom:14px;
-      padding: 14px 16px;
-      border-radius: 22px;
-      background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
-      border:1px solid var(--stroke);
-      box-shadow: var(--shadow);
-    }
-    .brand{
-      display:flex;flex-direction:column;gap:2px;min-width:0
-    }
-    .brand .t1{font-weight:800;letter-spacing:.4px}
-    .brand .t2{font-size:12px;color:var(--muted2)}
-    .chip{
-      display:inline-flex;align-items:center;gap:8px;
-      padding:10px 12px;border-radius:999px;
-      background: rgba(255,255,255,.06);
-      border:1px solid var(--stroke);
-      font-weight:700;
-      white-space:nowrap;
-    }
-    .dot{width:10px;height:10px;border-radius:50%}
-    .dot.good{background:var(--good);box-shadow:0 0 0 6px rgba(43,212,143,.12)}
-    .dot.bad{background:var(--bad);box-shadow:0 0 0 6px rgba(255,77,95,.12)}
-    .dot.warn{background:var(--warn);box-shadow:0 0 0 6px rgba(255,204,102,.12)}
-
-    h1{
-      margin:18px 8px 12px;
-      font-size:46px;line-height:1.03;
-      letter-spacing:-.8px;
-    }
-    @media (max-width:430px){ h1{font-size:40px} }
-
-    .grid{
-      display:grid;
-      grid-template-columns:1fr;
-      gap:12px;
-    }
-
-    .card{
-      border-radius: var(--radius);
-      background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
-      border:1px solid var(--stroke);
-      box-shadow: var(--shadow);
-      padding: 14px;
-    }
-
-    .stats{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:12px;
-    }
-    .stat{
-      border-radius: var(--radius2);
-      background: rgba(0,0,0,.12);
-      border:1px solid rgba(255,255,255,.08);
-      padding: 14px 14px;
-      min-height:86px;
-    }
-    .stat .k{font-size:14px;color:var(--muted2);font-weight:700}
-    .stat .v{font-size:22px;font-weight:900;margin-top:6px}
-    .stat .sub{font-size:12px;color:var(--muted2);margin-top:6px}
-
-    .btnrow{display:grid;gap:10px;margin-top:10px}
-    .btn{
-      appearance:none;border:0;cursor:pointer;
-      width:100%;
-      padding: 16px 14px;
-      border-radius: 22px;
-      font-size:22px;
-      font-weight:900;
-      color:var(--txt);
-      background: linear-gradient(180deg, rgba(77,163,217,.30), rgba(77,163,217,.12));
-      border:1px solid rgba(77,163,217,.35);
-      box-shadow: 0 14px 35px rgba(0,0,0,.28);
-      transition: transform .08s ease, filter .2s ease, opacity .2s ease;
-    }
-    .btn:active{transform: scale(.99)}
-    .btn.secondary{
-      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
-      border:1px solid var(--stroke);
-    }
-    .btn.danger{
-      background: linear-gradient(180deg, rgba(255,77,95,.28), rgba(255,77,95,.10));
-      border:1px solid rgba(255,77,95,.38);
-    }
-    .btn.disabled, .btn:disabled{
-      opacity:.45;
-      cursor:not-allowed;
-      filter:saturate(.8);
-    }
-
-    .sectionTitle{
-      font-size:34px;
-      font-weight:950;
-      margin: 8px 4px 10px;
-      letter-spacing:-.5px;
-    }
-    .hint{
-      margin: 0 4px 8px;
-      color: var(--muted);
-      font-weight:650;
-    }
-
-    .list{display:grid;gap:10px}
-    .item{
-      border-radius: 18px;
-      background: rgba(0,0,0,.14);
-      border:1px solid rgba(255,255,255,.09);
-      padding: 12px;
-    }
-    .itemTop{
-      display:flex;justify-content:space-between;gap:10px;align-items:flex-start;
-    }
-    .itemTitle{font-weight:950;font-size:16px}
-    .itemMeta{color:var(--muted2);font-size:12px;margin-top:4px;line-height:1.35}
-    .pill{
-      display:inline-flex;align-items:center;gap:6px;
-      font-size:12px;font-weight:900;
-      padding:7px 10px;border-radius:999px;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.06);
-      white-space:nowrap;
-    }
-
-    .itemActions{
-      display:grid;
-      grid-template-columns:1fr 1fr;
-      gap:10px;
-      margin-top:10px;
-    }
-    .miniBtn{
-      appearance:none;border:0;cursor:pointer;
-      border-radius: 14px;
-      padding: 12px 10px;
-      font-weight:950;
-      color:var(--txt);
-      background: rgba(77,163,217,.18);
-      border:1px solid rgba(77,163,217,.30);
-    }
-    .miniBtn.bad{
-      background: rgba(255,77,95,.18);
-      border:1px solid rgba(255,77,95,.30);
-    }
-
-    .mapWrap{
-      border-radius: var(--radius);
-      overflow:hidden;
-      border:1px solid rgba(255,255,255,.10);
-      background: rgba(0,0,0,.12);
-      box-shadow: var(--shadow);
-    }
-    #miniMap{height:240px}
-    @media (max-width:430px){ #miniMap{height:220px} }
-
-    .legal{
-      margin-top:10px;
-      padding: 12px 14px;
-      border-radius: 18px;
-      background: rgba(0,0,0,.16);
-      border:1px solid rgba(255,255,255,.08);
-      color: var(--muted);
-      font-weight:650;
-    }
-
-    /* PIN overlay */
-    .overlay{
-      position:fixed;inset:0;
-      background: radial-gradient(900px 600px at 30% 20%, rgba(77,163,217,.18), transparent 55%),
-                  linear-gradient(180deg, rgba(0,0,0,.65), rgba(0,0,0,.80));
-      display:none;
-      align-items:flex-end;
-      justify-content:center;
-      padding: 18px 14px 26px;
-      z-index:9999;
-    }
-    .overlay.show{display:flex}
-    .pinCard{
-      width:min(760px, 100%);
-      border-radius: var(--radius);
-      background: linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.06));
-      border:1px solid rgba(255,255,255,.12);
-      box-shadow: var(--shadow);
-      padding: 16px;
-    }
-    .pinTitle{font-size:18px;font-weight:950;margin:0 0 6px}
-    .pinText{margin:0 0 12px;color:var(--muted);font-weight:650}
-    .pinRow{display:grid;grid-template-columns:1fr;gap:10px}
-    .pinInput{
-      width:100%;
-      padding: 14px 14px;
-      border-radius: 16px;
-      border:1px solid rgba(255,255,255,.14);
-      background: rgba(0,0,0,.20);
-      color: var(--txt);
-      font-size:18px;
-      font-weight:900;
-      outline:none;
-    }
-    .pinError{color:#ffd3d8;font-weight:850;display:none;margin-top:8px}
-    .pinError.show{display:block}
-  </style>
 </head>
-
 <body>
-  <div class="wrap">
-    <div class="topbar">
+  <!-- Gate PIN -->
+  <div id="pinOverlay" class="overlay" style="display:none">
+    <div class="modal">
+      <h2>Accès livreur</h2>
+      <p>Entre le code pour ouvrir l’espace pro.</p>
+      <input id="pinInput" class="input" inputmode="numeric" maxlength="8" placeholder="Code">
+      <div style="height:10px"></div>
+      <button id="pinBtn" class="btn">Déverrouiller</button>
+      <div id="pinErr" class="notice" style="display:none;margin-top:12px">Code incorrect.</div>
+    </div>
+  </div>
+
+  <div class="wrap" id="app" style="display:none">
+    <header class="topbar">
       <div class="brand">
-        <div class="t1">APERO de nuit</div>
-        <div class="t2" id="headerSub">Espace Livreur</div>
+        <img alt="Apéro de Nuit 66" src="https://raw.githubusercontent.com/bullyto/apero/main/assets/logo-header.png">
       </div>
-      <div class="chip" id="chipStatus">
-        <span class="dot bad" id="chipDot"></span>
-        <span id="chipText">Livreur hors ligne</span>
-      </div>
-    </div>
+      <div class="badge"><span class="dot"></span><span id="driverStatus">Livreur en ligne</span></div>
+    </header>
 
-    <h1>Espace Livreur</h1>
+    <section class="card">
+      <h1 class="h1" style="margin-bottom:6px">Espace Livreur</h1>
+      <p class="p"></p>
 
-    <div class="card">
-      <div class="stats">
-        <div class="stat">
-          <div class="k">GPS livreur</div>
-          <div class="v" id="gpsStatus">—</div>
-          <div class="sub" id="gpsSub">—</div>
+      <div class="kpiRow" style="margin-top:12px">
+        <div class="kpi">
+          <div class="t">GPS livreur</div>
+          <div class="v" id="gpsState">—</div>
         </div>
-        <div class="stat">
-          <div class="k">Dernière mise à jour</div>
+        <div class="kpi">
+          <div class="t">Dernière mise à jour</div>
           <div class="v" id="lastUpdate">—</div>
-          <div class="sub" id="lastUpdateSub">—</div>
         </div>
-        <div class="stat">
-          <div class="k">Demandes</div>
-          <div class="v" id="demandsCount">—</div>
-          <div class="sub" id="demandsSub">En attente</div>
-        </div>
-        <div class="stat">
-          <div class="k">Notifications</div>
-          <div class="v" id="notifStatus">—</div>
-          <div class="sub" id="notifSub">—</div>
+        <div class="kpi">
+          <div class="t">Demandes</div>
+          <div class="v" id="pendingCount">0</div>
         </div>
       </div>
 
-      <div class="btnrow">
-        <button class="btn" id="btnStartGps">Activer GPS</button>
-        <button class="btn secondary" id="btnNotif">Activer notifications</button>
-        <button class="btn danger disabled" id="btnStopGps" disabled>Arrêter GPS</button>
-        <button class="btn secondary" id="btnRecenter">Recentrer</button>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+        <div class="btnRow"><button id="btnGps" class="btn btnSmall">Activer GPS</button><button id="btnGpsStop" class="btn btnSmall btnDanger" disabled>Arrêter GPS</button></div>
+        <button id="btnRecenter" class="btn secondary" style="flex:1;min-width:220px">Recentrer</button>
+        <button id="btnNotif" class="btn secondary" style="flex:1;min-width:220px">🔔 Activer notifications</button>
       </div>
 
-      <div class="mapWrap" style="margin-top:14px">
-        <div id="miniMap"></div>
+      <div class="mapWrap">
+        <div id="map"></div>
       </div>
+    </section>
 
-      <div class="legal">
-        L’abus d’alcool est dangereux pour la santé, à consommer avec modération.
+    <section class="card">
+      <h2 class="h1" style="font-size:18px;margin-bottom:10px">Demandes & suivis</h2>
+
+      <div class="notice" style="margin-top:0">
+        Astuce : <b>+5 / -5</b> ajuste le temps (max 30 min). <b>Stop</b> coupe immédiatement.
       </div>
-    </div>
-
-    <div class="card">
-      <div class="sectionTitle">Demandes & suivis</div>
-      <div class="hint">Astuce : <b>+5 / -5</b> ajuste le temps (max 30 min). <b>Stop</b> coupe immédiatement.</div>
 
       <div style="margin-top:12px">
-        <div class="sectionTitle" style="font-size:22px;margin:0 0 10px">En attente</div>
-        <div class="list" id="pendingList"></div>
-        <div class="hint" id="pendingEmpty" style="display:none">Aucune demande en attente.</div>
+        <div class="p" style="font-weight:900;margin-bottom:8px">En attente</div>
+        <div id="listPending" class="list"></div>
       </div>
 
-      <div style="margin-top:18px">
-        <div class="sectionTitle" style="font-size:22px;margin:0 0 10px">Actifs</div>
-        <div class="list" id="activeList"></div>
-        <div class="hint" id="activeEmpty" style="display:none">Aucun suivi actif.</div>
+      <div style="margin-top:14px">
+        <div class="p" style="font-weight:900;margin-bottom:8px">Actifs</div>
+        <div id="listActive" class="list"></div>
       </div>
-    </div>
-
-    <div class="hint" id="status" style="margin-top:10px"></div>
+    </section>
   </div>
 
-  <!-- PIN -->
-  <div class="overlay" id="pinOverlay">
-    <div class="pinCard">
-      <p class="pinTitle">Accès Livreur</p>
-      <p class="pinText">Entre le code PIN pour ouvrir l’espace livreur.</p>
-      <div class="pinRow">
-        <input class="pinInput" id="pinInput" type="password" inputmode="numeric" placeholder="PIN" autocomplete="one-time-code" />
-        <button class="btn" id="pinSubmit">Valider</button>
-      </div>
-      <div class="pinError" id="pinError">Code incorrect.</div>
-    </div>
-  </div>
+  <div class="legal">L’abus d’alcool est dangereux pour la santé, à consommer avec modération.</div>
 
-  <!-- Leaflet -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <!-- App -->
   <script type="module" src="./driver.js"></script>
 </body>
 </html>

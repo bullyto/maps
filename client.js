@@ -180,15 +180,14 @@ async function requestFlow() {
     navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
   }).catch(() => null);
 
-  // GPS: idéalement on l’a, mais on ne bloque plus l’envoi si l’utilisateur refuse.
-  let lat = null, lng = null, acc = null;
   if (!pos) {
-    console.warn("[client] GPS indisponible/refusé: demande envoyée sans position.");
-  } else {
-    lat = pos.coords.latitude;
-    lng = pos.coords.longitude;
-    acc = pos.coords.accuracy;
+    alert("Impossible d’obtenir votre position. Autorise le GPS pour activer le suivi.");
+    return;
   }
+
+  const lat = pos.coords.latitude;
+  const lng = pos.coords.longitude;
+  const acc = pos.coords.accuracy;
 
   markerClient.setLatLng([lat, lng]);
   map.setView([lat, lng], 15);
