@@ -1,101 +1,130 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Suivi Livreur • Apéro de Nuit 66</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b2233" />
+  <title>Apéro de nuit • Espace Livreur</title>
 
-  <!-- IMPORTANT: manifest + SW UNIQUEMENT côté livreur -> PWA install = livreur -->
-  <link rel="manifest" href="./manifest.webmanifest">
-  <meta name="theme-color" content="#0b1c2d">
-  <link rel="apple-touch-icon" href="./assets/icon-192.png">
-  <link rel="icon" href="./assets/icon-192.png">
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
 
-  <link rel="stylesheet" href="./style.css">
-  <link rel="preconnect" href="https://unpkg.com">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <!-- OneSignal Web Push (Driver) -->
+  <!-- Styles -->
+  <link rel="stylesheet" href="./style.css" />
+
+  <!-- Leaflet (carte) -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+    defer
+  ></script>
+
+  <!-- OneSignal v16 (page SDK) -->
   <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
 </head>
+
 <body>
-  <!-- Gate PIN -->
-  <div id="pinOverlay" class="overlay" style="display:none">
-    <div class="modal">
-      <h2>Accès livreur</h2>
-      <p>Entre le code pour ouvrir l’espace pro.</p>
-      <input id="pinInput" class="input" inputmode="numeric" maxlength="8" placeholder="Code">
-      <div style="height:10px"></div>
-      <button id="pinBtn" class="btn">Déverrouiller</button>
-      <div id="pinErr" class="notice" style="display:none;margin-top:12px">Code incorrect.</div>
+  <!-- PIN Overlay -->
+  <div id="pinOverlay" class="overlay">
+    <div class="overlay-card">
+      <div class="overlay-title">Accès Livreur</div>
+      <div class="overlay-sub">Entre le code PIN pour ouvrir l’espace livreur.</div>
+
+      <div class="overlay-row">
+        <input id="pinInput" class="overlay-input" type="password" inputmode="numeric" autocomplete="one-time-code" placeholder="PIN" />
+        <button id="pinBtn" class="btn btn-primary overlay-btn">Valider</button>
+      </div>
+
+      <div id="pinErr" class="overlay-error" aria-live="polite"></div>
     </div>
   </div>
 
-  <div class="wrap" id="app" style="display:none">
-    <header class="topbar">
+  <!-- App -->
+  <div id="app" class="app" style="display:none;">
+    <!-- Top bar -->
+    <div class="topbar">
       <div class="brand">
-        <img alt="Apéro de Nuit 66" src="https://raw.githubusercontent.com/bullyto/apero/main/assets/logo-header.png">
-      </div>
-      <div class="badge"><span class="dot"></span><span id="driverStatus">Livreur en ligne</span></div>
-    </header>
-
-    <section class="card">
-      <h1 class="h1" style="margin-bottom:6px">Espace Livreur</h1>
-      <p class="p"></p>
-
-      <div class="kpiRow" style="margin-top:12px">
-        <div class="kpi">
-          <div class="t">GPS livreur</div>
-          <div class="v" id="gpsState">—</div>
-        </div>
-        <div class="kpi">
-          <div class="t">Dernière mise à jour</div>
-          <div class="v" id="lastUpdate">—</div>
-        </div>
-        <div class="kpi">
-          <div class="t">Demandes</div>
-          <div class="v" id="pendingCount">0</div>
-        </div>
-        <div class="kpi">
-          <div class="t">Notifications</div>
-          <div class="v" id="pushState">—</div>
+        <img class="brand-logo" src="./assets/logo.png" alt="Apéro de nuit" onerror="this.style.display='none'" />
+        <div class="brand-text">
+          <div class="brand-name">APERO de nuit</div>
+          <div class="brand-sub">Espace Livreur</div>
         </div>
       </div>
 
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
-        <button id="btnPushEnable" class="btn secondary" style="flex:1;min-width:220px">Activer notifications</button>
-        <div class="btnRow"><button id="btnGps" class="btn btnSmall">Activer GPS</button><button id="btnGpsStop" class="btn btnSmall btnDanger" disabled>Arrêter GPS</button></div>
-        <button id="btnRecenter" class="btn secondary" style="flex:1;min-width:220px">Recentrer</button>
+      <div class="right">
+        <div id="driverOnlineLabel" class="badge">Livreur hors ligne</div>
+      </div>
+    </div>
+
+    <div class="container">
+      <h1 class="title">Espace Livreur</h1>
+
+      <!-- KPI cards -->
+      <div class="card kpis">
+        <div class="kpi">
+          <div class="kpi-label">GPS livreur</div>
+          <div id="gpsStatus" class="kpi-value">—</div>
+        </div>
+
+        <div class="kpi">
+          <div class="kpi-label">Dernière mise à jour</div>
+          <div id="lastUpdate" class="kpi-value">—</div>
+        </div>
+
+        <div class="kpi">
+          <div class="kpi-label">Demandes</div>
+          <div id="requestCount" class="kpi-value">—</div>
+        </div>
+
+        <div class="kpi">
+          <div class="kpi-label">Notifications</div>
+          <div id="pushState" class="kpi-value">—</div>
+        </div>
+
+        <div class="actions">
+          <button id="btnStart" class="btn btn-primary">Activer GPS</button>
+          <button id="btnPushEnable" class="btn btn-secondary">Activer notifications</button>
+          <button id="btnStop" class="btn btn-danger" disabled>Arrêter GPS</button>
+          <button id="btnCenter" class="btn btn-primary">Recentrer</button>
+        </div>
+
+        <!-- Debug push (utile pour toi quand ça merde) -->
+        <div id="pushDebug" class="hint" aria-live="polite"></div>
       </div>
 
-      <div class="p" id="pushDebug" style="margin-top:10px;opacity:.85;font-size:12px;word-break:break-word"></div>
-
-      <div class="mapWrap">
-        <div id="map"></div>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2 class="h1" style="font-size:18px;margin-bottom:10px">Demandes & suivis</h2>
-
-      <div class="notice" style="margin-top:0">
-        Astuce : <b>+5 / -5</b> ajuste le temps (max 30 min). <b>Stop</b> coupe immédiatement.
+      <!-- Map -->
+      <div class="card map-wrap">
+        <div id="map" class="map"></div>
+        <div class="health">
+          L’abus d’alcool est dangereux pour la santé, à consommer avec modération.
+        </div>
       </div>
 
-      <div style="margin-top:12px">
-        <div class="p" style="font-weight:900;margin-bottom:8px">En attente</div>
+      <!-- Requests -->
+      <div class="card">
+        <h2 class="section-title">Demandes & suivis</h2>
+        <div class="hint">
+          Astuce : <b>+5 / -5</b> ajuste le temps (max 30 min). <b>Stop</b> coupe immédiatement.
+        </div>
+
+        <h3 class="sub-title">En attente</h3>
         <div id="listPending" class="list"></div>
-      </div>
 
-      <div style="margin-top:14px">
-        <div class="p" style="font-weight:900;margin-bottom:8px">Actifs</div>
+        <h3 class="sub-title">Actifs</h3>
         <div id="listActive" class="list"></div>
       </div>
-    </section>
+    </div>
   </div>
 
-  <div class="legal">L’abus d’alcool est dangereux pour la santé, à consommer avec modération.</div>
-
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- App scripts -->
   <script type="module" src="./driver.js"></script>
 </body>
 </html>
