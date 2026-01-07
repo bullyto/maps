@@ -1,104 +1,93 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>AND-Suivi • Espace Livreur</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Suivi Livreur • Apéro de Nuit 66</title>
 
-  <link rel="manifest" href="./manifest.webmanifest" />
-  <meta name="theme-color" content="#0b1a24" />
+  <!-- IMPORTANT: manifest + SW UNIQUEMENT côté livreur -> PWA install = livreur -->
+  <link rel="manifest" href="./manifest.webmanifest">
+  <meta name="theme-color" content="#0b1c2d">
+  <link rel="apple-touch-icon" href="./assets/icon-192.png">
+  <link rel="icon" href="./assets/icon-192.png">
 
-  <link rel="icon" href="./icons/icon-192.png" />
-  <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
-
-  <link rel="stylesheet" href="./style.css" />
-
-  <!-- Leaflet -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="./style.css">
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 </head>
-
 <body>
-  <div class="app">
-    <div class="topBar">
-      <div class="brand">
-        <img class="brandLogo" src="./assets/logo.png" alt="APERO de nuit" />
-      </div>
-      <div class="statusBadge" id="driverOnlineBadge">
-        <span class="dot"></span>
-        <span id="driverOnlineText">Livreur hors ligne</span>
-      </div>
-    </div>
-
-    <div class="container">
-      <h1 class="title">Espace Livreur</h1>
-
-      <div class="kpiRow">
-        <div class="kpiBox">
-          <div class="kpiLabel">GPS livreur</div>
-          <div class="kpiValue" id="gpsState">—</div>
-        </div>
-
-        <div class="kpiBox">
-          <div class="kpiLabel">Dernière mise à jour</div>
-          <div class="kpiValue" id="lastUpdate">—</div>
-        </div>
-
-        <div class="kpiBox">
-          <div class="kpiLabel">Demandes</div>
-          <div class="kpiValue" id="requestsCount">—</div>
-        </div>
-
-        <!-- ✅ AJOUT : Etat notifs push -->
-        <div class="kpiBox">
-          <div class="kpiLabel">Notifications</div>
-          <div class="kpiValue" id="pushState">—</div>
-        </div>
-      </div>
-
-      <div class="btnRow">
-        <button class="btnPrimary" id="btnGpsStart">Activer GPS</button>
-        <button class="btnDanger" id="btnGpsStop" disabled>Arrêter GPS</button>
-      </div>
-
-      <!-- ✅ AJOUT : bouton abonnement push -->
-      <div class="btnRow">
-        <button class="btnPrimary" id="btnPushEnable">Activer notifications</button>
-      </div>
-
-      <div class="btnRow">
-        <button class="btnSecondary" id="btnCenter">Recentrer</button>
-      </div>
-
-      <div class="mapCard">
-        <div id="map" class="map"></div>
-      </div>
-
-      <div class="section">
-        <h2 class="sectionTitle">Demandes & suivis</h2>
-
-        <div class="tipBox">
-          Astuce : <b>+5</b> / <b>-5</b> ajuste le temps (max 30 min). <b>Stop</b> coupe immédiatement.
-        </div>
-
-        <div class="subTitle">En attente</div>
-        <div id="pendingList" class="list"></div>
-
-        <div class="subTitle">Actifs</div>
-        <div id="activeList" class="list"></div>
-      </div>
-
-      <div class="footerDisclaimer">
-        L'abus d'alcool est dangereux pour la santé, à consommer avec modération.
-      </div>
+  <!-- Gate PIN -->
+  <div id="pinOverlay" class="overlay" style="display:none">
+    <div class="modal">
+      <h2>Accès livreur</h2>
+      <p>Entre le code pour ouvrir l’espace pro.</p>
+      <input id="pinInput" class="input" inputmode="numeric" maxlength="8" placeholder="Code">
+      <div style="height:10px"></div>
+      <button id="pinBtn" class="btn">Déverrouiller</button>
+      <div id="pinErr" class="notice" style="display:none;margin-top:12px">Code incorrect.</div>
     </div>
   </div>
 
-  <!-- Leaflet -->
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <div class="wrap" id="app" style="display:none">
+    <header class="topbar">
+      <div class="brand">
+        <img alt="Apéro de Nuit 66" src="https://raw.githubusercontent.com/bullyto/apero/main/assets/logo-header.png">
+      </div>
+      <div class="badge"><span class="dot"></span><span id="driverStatus">Livreur en ligne</span></div>
+    </header>
 
-  <!-- App -->
-  <script src="./config.js"></script>
-  <script src="./shared.js"></script>
-  <script src="./driver.js"></script>
+    <section class="card">
+      <h1 class="h1" style="margin-bottom:6px">Espace Livreur</h1>
+      <p class="p"></p>
+
+      <div class="kpiRow" style="margin-top:12px">
+        <div class="kpi">
+          <div class="t">GPS livreur</div>
+          <div class="v" id="gpsState">—</div>
+        </div>
+        <div class="kpi">
+          <div class="t">Dernière mise à jour</div>
+          <div class="v" id="lastUpdate">—</div>
+        </div>
+        <div class="kpi">
+          <div class="t">Demandes</div>
+          <div class="v" id="pendingCount">0</div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
+        <div class="btnRow"><button id="btnGps" class="btn btnSmall">Activer GPS</button><button id="btnGpsStop" class="btn btnSmall btnDanger" disabled>Arrêter GPS</button></div>
+        <button id="btnRecenter" class="btn secondary" style="flex:1;min-width:220px">Recentrer</button>
+      </div>
+
+      <div class="mapWrap">
+        <div id="map"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="h1" style="font-size:18px;margin-bottom:10px">Demandes & suivis</h2>
+
+      <div class="notice" style="margin-top:0">
+        Astuce : <b>+5 / -5</b> ajuste le temps (max 30 min). <b>Stop</b> coupe immédiatement.
+      </div>
+
+      <div style="margin-top:12px">
+        <div class="p" style="font-weight:900;margin-bottom:8px">En attente</div>
+        <div id="listPending" class="list"></div>
+      </div>
+
+      <div style="margin-top:14px">
+        <div class="p" style="font-weight:900;margin-bottom:8px">Actifs</div>
+        <div id="listActive" class="list"></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="legal">L’abus d’alcool est dangereux pour la santé, à consommer avec modération.</div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+  <script type="module" src="./driver.js"></script>
 </body>
 </html>

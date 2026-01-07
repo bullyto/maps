@@ -1,81 +1,63 @@
 <!doctype html>
 <html lang="fr">
 <head>
-<title>Suivi de commande</title>
-
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<link rel="manifest" href="./manifest.webmanifest">
-<link rel="icon" href="./icon-192.png">
-<link rel="apple-touch-icon" href="./apple-touch-icon.png">
-<link rel="stylesheet" href="./style.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-<script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Suivi de commande • Apéro de Nuit 66</title>
+  <link rel="stylesheet" href="./style.css">
+  <link rel="icon" href="./assets/icon-192.png">
+  <!-- IMPORTANT: pas de manifest ici -> le navigateur ne proposera pas d'installer la PWA côté client -->
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 </head>
 <body>
-  <div class="container">
-    <div class="topbar">
+  <div class="wrap">
+    <header class="topbar">
       <div class="brand">
-        <span class="dotlive" aria-hidden="true"></span>
-        <div style="min-width:0">
-          <h1>Apéro de Nuit</h1>
-          <p>Suivi de commande • sécurisé • temps réel</p>
-        </div>
+        <img alt="Apéro de Nuit 66" src="https://raw.githubusercontent.com/bullyto/apero/main/assets/logo-header.png">
       </div>
-      <button id="btnBack" class="btn secondary">Retour</button>
-    </div>
+      <div class="badge"><span class="dot"></span><span id="statusBadge">Suivi sécurisé</span></div>
+    </header>
 
-    <div class="card">
-      <div class="row">
+    <section class="card">
+      <div class="grid2">
         <div>
-          <div class="small">Statut</div>
-          <h2 id="statusTitle" style="margin-top:2px">Prêt</h2>
+          <h1 class="h1">Suivre ma commande</h1>
+          <p class="p">Vous voyez uniquement votre livreur, en temps réel. Le partage est temporaire et sécurisé.</p>
+          <div class="notice">
+            🔒 <b>Confidentialité</b> : aucun autre client n’est visible. Vous pouvez arrêter à tout moment en fermant cette page.
+          </div>
         </div>
-        <div id="statusPill" class="pill" data-status="expired">—</div>
-      </div>
-
-      <div class="field">
-        <label>Ton nom (ce que le livreur verra)</label>
-        <input id="clientName" maxlength="24" placeholder="Ex: Lucas" autocomplete="nickname">
-      </div>
-
-      <div style="margin-top:12px" class="row">
-        <button id="btnRequest" class="btn" style="flex:1">Suivre ma commande</button>
-      </div>
-
-      <p class="small" id="hint" style="margin-top:10px">
-        1) Tu partages ta position (obligatoire). 2) Le livreur accepte/refuse. 3) Suivi en direct pendant <b>30 min max</b>.
-      </p>
-    </div>
-
-    <div class="card">
-      <div class="row" style="justify-content:space-between">
         <div>
-          <h2 style="margin-bottom:4px">Carte</h2>
-          <div class="small">Ton point (vert) + livreur (bleu) quand c'est actif.</div>
-        </div>
-        <div class="row">
-          <button id="btnCenter" class="btn secondary">Recentrer</button>
+          <label class="p" style="display:block;margin:0 0 8px;opacity:.85;font-weight:800;">Votre nom (affiché au livreur)</label>
+          <input id="name" class="input" maxlength="24" placeholder="Ex: Lucas">
+          <div style="height:10px"></div>
+          <button id="btnRequest" class="btn">Suivre ma commande</button>
+          <div style="height:10px"></div>
+          <button id="btnReset" class="btn secondary" style="display:none">Redemander le suivi</button>
+          <div class="kpiRow" style="margin-top:12px">
+            <div class="kpi">
+              <div class="t">État</div>
+              <div class="v" id="stateText">—</div>
+            </div>
+            <div class="kpi">
+              <div class="t">Temps restant</div>
+              <div class="v" id="countdown">—</div>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="mapWrap"><div id="map"></div></div>
-      <div class="small" id="footerInfo" style="margin-top:10px">—</div>
-    </div>
 
-    <div class="card">
-      <h2>Confiance & confidentialité</h2>
-      <ul class="small" style="margin:10px 0 0; padding-left:18px">
-        <li>Les clients ne se voient jamais entre eux.</li>
-        <li>Tu vois uniquement la position du livreur, jamais son itinéraire complet.</li>
-        <li>Le livreur peut couper l’accès à tout moment.</li>
-        <li>Le suivi s’arrête automatiquement à la fin du temps imparti.</li>
-      </ul>
-    </div>
+      <div class="mapWrap" style="margin-top:14px">
+        <div id="map"></div>
+      </div>
+    </section>
   </div>
 
   <div class="legal">L’abus d’alcool est dangereux pour la santé, à consommer avec modération.</div>
 
-<script type="module" src="./client.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script type="module" src="./client.js"></script>
 </body>
 </html>
