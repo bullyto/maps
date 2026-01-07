@@ -1,63 +1,154 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Suivi de commande • Apéro de Nuit 66</title>
-  <link rel="stylesheet" href="./style.css">
-  <link rel="icon" href="./assets/icon-192.png">
-  <!-- IMPORTANT: pas de manifest ici -> le navigateur ne proposera pas d'installer la PWA côté client -->
-  <link rel="preconnect" href="https://unpkg.com">
-  <link rel="preconnect" href="https://cdnjs.cloudflare.com">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AND-Suivi — Espace Livreur</title>
+
+  <!-- Ton CSS existant (adapte le nom si besoin) -->
+  <link rel="stylesheet" href="./style.css" />
+
+  <!-- PWA -->
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <meta name="theme-color" content="#0b1b2b" />
+
+  <!-- OneSignal SDK (v16) -->
+  <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+
+  <!-- Config de ton projet -->
+  <script src="./config.js" defer></script>
+
+  <!-- App driver -->
+  <script src="./driver.js" defer></script>
+
+  <style>
+    /* Patch UI uniquement pour rendre propre si ton style.css ne couvre pas tout */
+    .btn {
+      appearance: none;
+      border: 0;
+      border-radius: 14px;
+      padding: 14px 16px;
+      font-weight: 700;
+      width: 100%;
+      cursor: pointer;
+      transition: transform .05s ease;
+    }
+    .btn:active { transform: scale(0.99); }
+    .btn-primary { background: rgba(70,140,210,.35); color: #fff; border: 1px solid rgba(120,190,255,.35); }
+    .btn-danger { background: rgba(220,70,70,.25); color: #fff; border: 1px solid rgba(255,120,120,.25); }
+    .btn-ghost { background: rgba(255,255,255,.06); color: #fff; border: 1px solid rgba(255,255,255,.10); }
+    .btn:disabled { opacity: .55; cursor: not-allowed; }
+
+    .card {
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.10);
+      border-radius: 22px;
+      padding: 16px;
+      margin: 12px 0;
+      backdrop-filter: blur(10px);
+    }
+    .row { display: flex; gap: 10px; }
+    .row > * { flex: 1; }
+    .muted { opacity: .8; }
+    .pill {
+      display:inline-flex; align-items:center; gap:8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.10);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #999; display:inline-block; }
+    .dot-ok { background: #4ade80; }
+    .dot-warn { background: #fbbf24; }
+    .dot-off { background: #94a3b8; }
+    .kpi-title { font-size: 14px; opacity: .75; margin-bottom: 6px; }
+    .kpi-value { font-size: 20px; font-weight: 800; }
+  </style>
 </head>
+
 <body>
-  <div class="wrap">
-    <header class="topbar">
-      <div class="brand">
-        <img alt="Apéro de Nuit 66" src="https://raw.githubusercontent.com/bullyto/apero/main/assets/logo-header.png">
-      </div>
-      <div class="badge"><span class="dot"></span><span id="statusBadge">Suivi sécurisé</span></div>
-    </header>
+  <div class="app">
 
-    <section class="card">
-      <div class="grid2">
-        <div>
-          <h1 class="h1">Suivre ma commande</h1>
-          <p class="p">Vous voyez uniquement votre livreur, en temps réel. Le partage est temporaire et sécurisé.</p>
-          <div class="notice">
-            🔒 <b>Confidentialité</b> : aucun autre client n’est visible. Vous pouvez arrêter à tout moment en fermant cette page.
-          </div>
-        </div>
-        <div>
-          <label class="p" style="display:block;margin:0 0 8px;opacity:.85;font-weight:800;">Votre nom (affiché au livreur)</label>
-          <input id="name" class="input" maxlength="24" placeholder="Ex: Lucas">
-          <div style="height:10px"></div>
-          <button id="btnRequest" class="btn">Suivre ma commande</button>
-          <div style="height:10px"></div>
-          <button id="btnReset" class="btn secondary" style="display:none">Redemander le suivi</button>
-          <div class="kpiRow" style="margin-top:12px">
-            <div class="kpi">
-              <div class="t">État</div>
-              <div class="v" id="stateText">—</div>
-            </div>
-            <div class="kpi">
-              <div class="t">Temps restant</div>
-              <div class="v" id="countdown">—</div>
-            </div>
-          </div>
-        </div>
+    <!-- Header (tu peux garder ton header existant, ceci est “safe”) -->
+    <div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <img src="./assets/logo.png" alt="Apéro de Nuit" style="width:34px; height:34px; border-radius:10px; object-fit:cover;"
+             onerror="this.style.display='none';" />
+        <div style="font-weight:900; letter-spacing:.2px;">APERO de nuit</div>
       </div>
 
-      <div class="mapWrap" style="margin-top:14px">
-        <div id="map"></div>
+      <div class="pill" id="pillOnline">
+        <span class="dot dot-off" id="dotOnline"></span>
+        <span id="txtOnline">Livreur hors ligne</span>
       </div>
-    </section>
+    </div>
+
+    <h1 style="margin: 10px 4px 6px; font-size: 40px; letter-spacing:.2px;">Espace Livreur</h1>
+
+    <div class="row">
+      <div class="card">
+        <div class="kpi-title">GPS livreur</div>
+        <div class="kpi-value" id="gpsState">—</div>
+      </div>
+      <div class="card">
+        <div class="kpi-title">Dernière mise à jour</div>
+        <div class="kpi-value" id="lastUpdate">—</div>
+      </div>
+      <div class="card">
+        <div class="kpi-title">Demandes</div>
+        <div class="kpi-value" id="requestsCount">—</div>
+      </div>
+    </div>
+
+    <!-- Notifications (propre) -->
+    <div class="card">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <div style="font-weight:900; font-size:18px;">Notifications</div>
+        <div class="pill" id="pillNotif">
+          <span class="dot dot-off" id="dotNotif"></span>
+          <span id="notifState">—</span>
+        </div>
+      </div>
+
+      <div class="muted" style="margin-top:10px; line-height:1.35;">
+        Objectif : quand un client envoie une demande, tu reçois une notification même PWA fermée.
+      </div>
+
+      <div id="notifHint" class="muted" style="margin-top:10px;"></div>
+
+      <div style="margin-top:12px;" class="row">
+        <button class="btn btn-primary" id="btnEnableNotif">Activer notifications</button>
+        <button class="btn btn-ghost" id="btnTestNotif">Tester</button>
+      </div>
+    </div>
+
+    <!-- Actions GPS -->
+    <div class="card">
+      <div class="row">
+        <button class="btn btn-primary" id="btnStartGps">Activer GPS</button>
+        <button class="btn btn-danger" id="btnStopGps" disabled>Arrêter GPS</button>
+      </div>
+      <div style="margin-top:10px;">
+        <button class="btn btn-ghost" id="btnRecenter">Recentrer</button>
+      </div>
+    </div>
+
+    <!-- Map container (ton code Leaflet existant peut s’y accrocher) -->
+    <div class="card" style="padding:0; overflow:hidden;">
+      <div id="map" style="height: 320px; width:100%;"></div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin: 0 0 6px;">Demandes & suivis</h2>
+      <div class="muted" style="line-height:1.35;">
+        Astuce : <b>+5 / -5</b> ajuste le temps (max 30 min). <b>Stop</b> coupe immédiatement.
+      </div>
+      <div id="requestsList" style="margin-top:12px;"></div>
+    </div>
+
+    <div style="height: 20px;"></div>
   </div>
-
-  <div class="legal">L’abus d’alcool est dangereux pour la santé, à consommer avec modération.</div>
-
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script type="module" src="./client.js"></script>
 </body>
 </html>
