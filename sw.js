@@ -14,7 +14,7 @@ try {
   // Si offline à l'install, l'app reste utilisable; les push arriveront quand le SDK sera accessible.
 }
 
-const VERSION = "v2026-01-06";
+const VERSION = "v2026-01-07";
 const CACHE_NAME = `adn66-maps-${VERSION}`;
 
 // Assets "core" (best effort)
