@@ -14,7 +14,7 @@
   <link rel="stylesheet" href="./style.css">
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <!-- OneSignal Web Push (Driver) -->
+  <!-- OneSignal v16 (page SDK) -->
   <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
 </head>
 <body>
@@ -37,6 +37,9 @@
       </div>
       <div class="badge"><span class="dot"></span><span id="driverStatus">Livreur en ligne</span></div>
     </header>
+  <div class="actions" style="display:flex;gap:10px;justify-content:center;margin:10px 0;">
+    <button id="enableNotif" class="btn">🔔 Activer notifications</button>
+  </div>
 
     <section class="card">
       <h1 class="h1" style="margin-bottom:6px">Espace Livreur</h1>
@@ -55,19 +58,13 @@
           <div class="t">Demandes</div>
           <div class="v" id="pendingCount">0</div>
         </div>
-        <div class="kpi">
-          <div class="t">Notifications</div>
-          <div class="v" id="pushState">—</div>
-        </div>
       </div>
 
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
-        <button id="btnPushEnable" class="btn secondary" style="flex:1;min-width:220px">Activer notifications</button>
         <div class="btnRow"><button id="btnGps" class="btn btnSmall">Activer GPS</button><button id="btnGpsStop" class="btn btnSmall btnDanger" disabled>Arrêter GPS</button></div>
         <button id="btnRecenter" class="btn secondary" style="flex:1;min-width:220px">Recentrer</button>
+        <button id="btnNotif" class="btn secondary" style="flex:1;min-width:220px">🔔 Activer notifications</button>
       </div>
-
-      <div class="p" id="pushDebug" style="margin-top:10px;opacity:.85;font-size:12px;word-break:break-word"></div>
 
       <div class="mapWrap">
         <div id="map"></div>
