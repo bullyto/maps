@@ -107,8 +107,13 @@ function oneSignalReady() {
       try {
         if (!oneSignalInited) {
           // On laisse le dashboard OneSignal gérer les chemins/scope de SW.
-          await OneSignal.init({ appId: ONESIGNAL_APP_ID });
-          oneSignalInited = true;
+          await OneSignal.init({
+            appId: ONESIGNAL_APP_ID,
+            serviceWorkerPath: "/maps/OneSignalSDKWorker.js",
+            serviceWorkerUpdaterPath: "/maps/OneSignalSDKUpdaterWorker.js",
+            serviceWorkerParam: { scope: "/maps/" }
+          });
+oneSignalInited = true;
         }
         resolve(OneSignal);
       } catch (e) {
