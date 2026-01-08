@@ -90,52 +90,108 @@ function acceptPin() {
 
 
 // --- Notifications (OneSignal) ---
-// Objectif: ajouter un simple bouton "Activer notifications" sans impacter la carte / GPS.
-const OneSignal = window.OneSignal || [];
-window.OneSignal = OneSignal;
+// Objectif: un bouton "Activer notifications" fiable (OneSignal v16) sans impacter la carte / GPS.
+// IMPORTANT v16: permission navigateur ≠ abonnement OneSignal. Il faut faire un opt-in explicite.
 let oneSignalInited = false;
 
-function initOneSignal() {
-  // OneSignal Web SDK v16 uses OneSignalDeferred
-  if (oneSignalInited) return true;
-  if (!ONESIGNAL_APP_ID) return false;
+function hasOneSignal() {
+  return !!ONESIGNAL_APP_ID;
+}
 
-  try {
+function oneSignalReady() {
+  return new Promise((resolve, reject) => {
+    if (!hasOneSignal()) return reject(new Error("ONESIGNAL_APP_ID manquant"));
+
     window.OneSignalDeferred = window.OneSignalDeferred || [];
     window.OneSignalDeferred.push(async (OneSignal) => {
-      await OneSignal.init({
-        appId: ONESIGNAL_APP_ID,
-        notifyButton: { enable: false },
-
-        // IMPORTANT: OneSignal requires its own SW file. We use their worker file,
-        // and that worker imports our PWA cache SW logic (sw.js) so nothing breaks.
-        serviceWorkerPath: "OneSignalSDKWorker.js",
-        serviceWorkerUpdaterPath: "OneSignalSDKUpdaterWorker.js",
-        serviceWorkerParam: { scope: "./" },
-      });
+      try {
+        if (!oneSignalInited) {
+          // On laisse le dashboard OneSignal gérer les chemins/scope de SW.
+          await OneSignal.init({ appId: ONESIGNAL_APP_ID });
+          oneSignalInited = true;
+        }
+        resolve(OneSignal);
+      } catch (e) {
+        reject(e);
+      }
     });
+  });
+}
 
-    oneSignalInited = true;
-    return true;
-  } catch (_) {
-    return false;
+function setNotifButtons(label, disabled = false) {
+  // Deux boutons existent (header + bloc). On garde les deux synchronisés.
+  const b1 = document.getElementById("enableNotif");
+  const b2 = els.btnNotif;
+  for (const b of [b1, b2]) {
+    if (!b) continue;
+    b.textContent = label;
+    b.disabled = !!disabled;
+  }
+}
+
+async function refreshNotifButtons() {
+  if (!hasOneSignal()) {
+    setNotifButtons("⚠️ Notifs indisponibles", true);
+    return;
+  }
+  try {
+    const OneSignal = await oneSignalReady();
+    const perm = await OneSignal.Notifications.permission; // 'granted' | 'denied' | 'default'
+    const optedIn = await OneSignal.User.PushSubscription.optedIn();
+
+    if (perm !== "granted") {
+      setNotifButtons("🔔 Activer notifications", false);
+      return;
+    }
+    if (optedIn) {
+      setNotifButtons("✅ Notifications activées", true);
+    } else {
+      // Permission OK mais OneSignal pas opt-in (cas classique v16)
+      setNotifButtons("🔔 Finaliser notifications", false);
+    }
+  } catch {
+    setNotifButtons("🔔 Activer notifications", false);
   }
 }
 
 async function requestNotifications() {
-  initOneSignal();
+  // 1) Init + permission
+  setNotifButtons("⏳ Activation…", true);
+
   try {
-    // v16 API
-    const perm = await OneSignal.Notifications.requestPermission();
-    // UI feedback
-    if (els.btnNotif) {
-      const granted = (perm === true) || (perm === "granted") || (Notification && Notification.permission === "granted");
-      els.btnNotif.textContent = granted ? "✅ Notifications activées" : "🔔 Activer notifications";
-      els.btnNotif.disabled = granted;
+    const OneSignal = await oneSignalReady();
+
+    // Demande permission navigateur si besoin
+    const p = await OneSignal.Notifications.permission;
+    if (p !== "granted") {
+      await OneSignal.Notifications.requestPermission();
     }
-  } catch (_) {
-    // fallback: browser permission prompt
-    try { await Notification.requestPermission(); } catch (_) {}
+
+    const perm = await OneSignal.Notifications.permission;
+    if (perm !== "granted") {
+      // Refusé ou ignoré
+      setNotifButtons(perm === "denied" ? "⛔ Notifications refusées" : "🔔 Activer notifications", perm === "denied");
+      return;
+    }
+
+    // 2) OPT-IN OneSignal (LE point qui manquait)
+    const optedIn = await OneSignal.User.PushSubscription.optedIn();
+    if (!optedIn) {
+      await OneSignal.User.PushSubscription.optIn();
+    }
+
+    // 3) Vérif
+    const optedIn2 = await OneSignal.User.PushSubscription.optedIn();
+    if (optedIn2) {
+      setNotifButtons("✅ Notifications activées", true);
+      console.log("[OneSignal] ✅ Opt-in OK");
+    } else {
+      setNotifButtons("⚠️ Activation incomplète", false);
+      console.warn("[OneSignal] Opt-in non confirmé");
+    }
+  } catch (e) {
+    console.error("[OneSignal] Opt-in error:", e);
+    setNotifButtons("⚠️ Erreur notifications", false);
   }
 }
 
@@ -461,6 +517,11 @@ function bootAfterGate() {
   if (els.btnGpsStop) els.btnGpsStop.addEventListener("click", stopDriverGps);
   els.btnRecenter.addEventListener("click", recenter);
   if (els.btnNotif) els.btnNotif.addEventListener("click", requestNotifications);
+  const btnTopNotif = document.getElementById("enableNotif");
+  if (btnTopNotif) btnTopNotif.addEventListener("click", requestNotifications);
+
+  // Met à jour l'état du bouton au démarrage (permission + opt-in)
+  refreshNotifButtons();
 
   startDashboardLoop();
 }
@@ -479,40 +540,3 @@ function boot() {
 }
 
 boot();
-
-
-// --- Notifications (OneSignal) — isolated, does not touch the map ---
-(function setupNotifButton() {
-  const btn = document.getElementById("enableNotif");
-  if (!btn) return;
-
-  const setState = (label, disabled=false) => {
-    btn.textContent = label;
-    btn.disabled = !!disabled;
-  };
-
-  setState("🔔 Activer notifications");
-
-  btn.addEventListener("click", async () => {
-    // Init OneSignal lazily (after UI/map are already up)
-    if (!initOneSignal()) {
-      setState("⚠️ Notifs indisponibles", true);
-      return;
-    }
-
-    window.OneSignalDeferred = window.OneSignalDeferred || [];
-    window.OneSignalDeferred.push(async (OneSignal) => {
-      try {
-        // Request browser permission / subscribe
-        await OneSignal.Notifications.requestPermission();
-
-        const perm = OneSignal.Notifications.permission; // 'granted' | 'denied' | 'default'
-        if (perm === "granted") setState("✅ Notifications activées", true);
-        else if (perm === "denied") setState("⛔ Notifications refusées", true);
-        else setState("🔔 Activer notifications");
-      } catch (e) {
-        setState("⚠️ Erreur notifications");
-      }
-    });
-  });
-})();
