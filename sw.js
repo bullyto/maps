@@ -1,66 +1,84 @@
-importScripts("https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js");
-// ADN66 Suivi Livreur — Service Worker (force update)
-const CACHE = "adn66-suivi-driver-v1767583271";
-const ASSETS = [
-  "./driver.html",
-  "./style.css",
-  "./driver.js",
-  "./shared.js",
-  "./config.js",
-  "./manifest.webmanifest",
-  "./icons/marker-client.svg",
-  "./icons/marker-driver.svg",
-  "./assets/icon-192.png",
-  "./assets/icon-512.png"
+/* /maps/sw.js
+   ✅ Version stable: OneSignal branché dans TON service worker
+   ✅ Pas de conflit de SW sur /maps/
+*/
+
+// 1) OneSignal SDK (OBLIGATOIRE en tout premier)
+try {
+  importScripts("https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js");
+} catch (e) {
+  // si offline au moment de l'install, on ne casse pas le SW
+}
+
+// 2) Ton SW (cache simple & safe)
+const VERSION = "maps-sw-2026-01-06";
+const CACHE = `maps-cache-${VERSION}`;
+const CORE = [
+  "/maps/",
+  "/maps/driver.html",
+  "/maps/driver.js",
+  "/maps/config.js",
 ];
 
-self.addEventListener("install", (e) => {
-  e.waitUntil((async () => {
-    const cache = await caches.open(CACHE);
-    await cache.addAll(ASSETS.map(u => new Request(u, { cache: "reload" })));
-    await self.skipWaiting();
+self.addEventListener("install", (event) => {
+  event.waitUntil((async () => {
+    try {
+      const cache = await caches.open(CACHE);
+      await cache.addAll(CORE);
+    } catch (e) { /* safe */ }
+    self.skipWaiting();
   })());
 });
 
-self.addEventListener("activate", (e) => {
-  e.waitUntil((async () => {
-    const keys = await caches.keys();
-    await Promise.all(keys.map(k => k !== CACHE ? caches.delete(k) : Promise.resolve()));
+self.addEventListener("activate", (event) => {
+  event.waitUntil((async () => {
+    try {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => (k.startsWith("maps-cache-") && k !== CACHE) ? caches.delete(k) : Promise.resolve()));
+    } catch (e) { /* safe */ }
+
     await self.clients.claim();
   })());
 });
 
-self.addEventListener("fetch", (e) => {
-  const req = e.request;
+// Cache-first pour les assets, network-first pour le HTML (safe)
+self.addEventListener("fetch", (event) => {
+  const req = event.request;
   const url = new URL(req.url);
 
-  // Only handle same-origin GET
-  if (req.method !== "GET" || url.origin !== location.origin) return;
+  // laisse passer OneSignal / push endpoints sans toucher
+  if (url.hostname.includes("onesignal") || url.pathname.includes("OneSignal")) return;
 
-  // Network-first for HTML/JS/CSS (always fresh)
-  const isCritical = url.pathname.endsWith(".html") || url.pathname.endsWith(".js") || url.pathname.endsWith(".css") || url.pathname.endsWith(".webmanifest");
-  if (isCritical) {
-    e.respondWith((async () => {
+  // Ne gère que /maps/
+  if (!url.pathname.startsWith("/maps/")) return;
+
+  // HTML => network-first
+  if (req.mode === "navigate" || (req.headers.get("accept") || "").includes("text/html")) {
+    event.respondWith((async () => {
       try {
-        const res = await fetch(req);
+        const fresh = await fetch(req);
         const cache = await caches.open(CACHE);
-        cache.put(req, res.clone());
-        return res;
-      } catch {
-        const cached = await caches.match(req);
-        return cached || new Response("Offline", { status: 503 });
+        cache.put(req, fresh.clone());
+        return fresh;
+      } catch (e) {
+        const cache = await caches.open(CACHE);
+        return (await cache.match(req)) || (await cache.match("/maps/driver.html")) || Response.error();
       }
     })());
     return;
   }
 
-  // Cache-first for small assets
-  e.respondWith((async () => {
-    const cached = await caches.match(req);
-    if (cached) return cached;
-    const res = await fetch(req);
+  // Assets => cache-first
+  event.respondWith((async () => {
     const cache = await caches.open(CACHE);
-    cache.put(req, res.clone());
-    return res;
+    const hit = await cache.match(req);
+    if (hit) return hit;
+    try {
+      const fresh = await fetch(req);
+      cache.put(req, fresh.clone());
+      return fresh;
+    } catch (e) {
+      return hit || Response.error();
+    }
   })());
 });

@@ -1,98 +1,77 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Suivi Livreur • Apéro de Nuit 66</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1220" />
+  <title>Suivi Livreur</title>
 
-  <!-- IMPORTANT: manifest + SW UNIQUEMENT côté livreur -> PWA install = livreur -->
-  <link rel="manifest" href="./manifest.webmanifest">
-  <meta name="theme-color" content="#0b1c2d">
-  <link rel="apple-touch-icon" href="./assets/icon-192.png">
-  <link rel="icon" href="./assets/icon-192.png">
-
-  <link rel="stylesheet" href="./style.css">
-  <link rel="preconnect" href="https://unpkg.com">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <!-- OneSignal v16 (page SDK) -->
-  <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+  <!-- (Optionnel) Leaflet si tu l’utilises déjà dans driver.js -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    html, body { height: 100%; margin: 0; background:#070b14; color:#eaf0ff; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    #map { height: 100%; width: 100%; }
+    .hud {
+      position: fixed; left: 12px; right: 12px; top: 12px; z-index: 9999;
+      display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    }
+    .pill {
+      backdrop-filter: blur(10px);
+      background: rgba(13, 18, 33, .72);
+      border: 1px solid rgba(255,255,255,.12);
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      border-radius: 999px;
+      padding: 10px 14px;
+      display:flex; align-items:center; gap:10px;
+    }
+    .btn {
+      cursor:pointer; user-select:none;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.16);
+      background: rgba(255,255,255,.08);
+      color:#eaf0ff;
+      padding: 10px 14px;
+      font-weight: 700;
+    }
+    .btn:active { transform: scale(.98); }
+    .btn.primary { background: rgba(0, 180, 255, .20); border-color: rgba(0,180,255,.35); }
+    .btn.danger  { background: rgba(255, 72, 72, .16); border-color: rgba(255,72,72,.30); }
+    .muted { opacity:.85; font-size: 12px; }
+    .dot { width:10px; height:10px; border-radius:50%; background:#666; box-shadow: 0 0 0 3px rgba(255,255,255,.06); }
+    .dot.ok { background:#33d17a; }
+    .dot.warn { background:#ffb020; }
+    .dot.bad { background:#ff4b4b; }
+  </style>
 </head>
+
 <body>
-  <!-- Gate PIN -->
-  <div id="pinOverlay" class="overlay" style="display:none">
-    <div class="modal">
-      <h2>Accès livreur</h2>
-      <p>Entre le code pour ouvrir l’espace pro.</p>
-      <input id="pinInput" class="input" inputmode="numeric" maxlength="8" placeholder="Code">
-      <div style="height:10px"></div>
-      <button id="pinBtn" class="btn">Déverrouiller</button>
-      <div id="pinErr" class="notice" style="display:none;margin-top:12px">Code incorrect.</div>
+  <div id="map"></div>
+
+  <div class="hud">
+    <div class="pill">
+      <div id="swDot" class="dot"></div>
+      <div>
+        <div style="font-weight:800;">Driver /maps/</div>
+        <div id="swInfo" class="muted">SW: …</div>
+      </div>
+    </div>
+
+    <div class="pill">
+      <button id="btnNotif" class="btn primary">Activer notifications</button>
+      <button id="btnTest" class="btn">Test token</button>
+      <button id="btnReset" class="btn danger">Reset SW</button>
+    </div>
+
+    <div class="pill">
+      <div class="muted" id="notifState">Notif: …</div>
     </div>
   </div>
 
-  <div class="wrap" id="app" style="display:none">
-    <header class="topbar">
-      <div class="brand">
-        <img alt="Apéro de Nuit 66" src="https://raw.githubusercontent.com/bullyto/apero/main/assets/logo-header.png">
-      </div>
-      <div class="badge"><span class="dot"></span><span id="driverStatus">Livreur en ligne</span></div>
-    </header>
-  <div class="actions" style="display:flex;gap:10px;justify-content:center;margin:10px 0;">
-    <button id="enableNotif" class="btn">🔔 Activer notifications</button>
-  </div>
+  <script src="./config.js"></script>
 
-    <section class="card">
-      <h1 class="h1" style="margin-bottom:6px">Espace Livreur</h1>
-      <p class="p"></p>
-
-      <div class="kpiRow" style="margin-top:12px">
-        <div class="kpi">
-          <div class="t">GPS livreur</div>
-          <div class="v" id="gpsState">—</div>
-        </div>
-        <div class="kpi">
-          <div class="t">Dernière mise à jour</div>
-          <div class="v" id="lastUpdate">—</div>
-        </div>
-        <div class="kpi">
-          <div class="t">Demandes</div>
-          <div class="v" id="pendingCount">0</div>
-        </div>
-      </div>
-
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">
-        <div class="btnRow"><button id="btnGps" class="btn btnSmall">Activer GPS</button><button id="btnGpsStop" class="btn btnSmall btnDanger" disabled>Arrêter GPS</button></div>
-        <button id="btnRecenter" class="btn secondary" style="flex:1;min-width:220px">Recentrer</button>
-        <button id="btnNotif" class="btn secondary" style="flex:1;min-width:220px">🔔 Activer notifications</button>
-      </div>
-
-      <div class="mapWrap">
-        <div id="map"></div>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2 class="h1" style="font-size:18px;margin-bottom:10px">Demandes & suivis</h2>
-
-      <div class="notice" style="margin-top:0">
-        Astuce : <b>+5 / -5</b> ajuste le temps (max 30 min). <b>Stop</b> coupe immédiatement.
-      </div>
-
-      <div style="margin-top:12px">
-        <div class="p" style="font-weight:900;margin-bottom:8px">En attente</div>
-        <div id="listPending" class="list"></div>
-      </div>
-
-      <div style="margin-top:14px">
-        <div class="p" style="font-weight:900;margin-bottom:8px">Actifs</div>
-        <div id="listActive" class="list"></div>
-      </div>
-    </section>
-  </div>
-
-  <div class="legal">L’abus d’alcool est dangereux pour la santé, à consommer avec modération.</div>
-
+  <!-- Leaflet (si tu utilises déjà la carte) -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script type="module" src="./driver.js"></script>
+
+  <script src="./driver.js?v=20260106"></script>
 </body>
 </html>
