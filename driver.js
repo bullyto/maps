@@ -137,8 +137,8 @@ function initOneSignal() {
             notifyButton: { enable: false },
 
             // OneSignal SW dédié (évite conflit avec ton sw.js)
-            serviceWorkerPath: "./OneSignalSDKWorker.js",
-            serviceWorkerUpdaterPath: "./OneSignalSDKUpdaterWorker.js",
+            serviceWorkerPath: "./push/OneSignalSDKWorker.js",
+            serviceWorkerUpdaterPath: "./push/OneSignalSDKUpdaterWorker.js",
           });
 
           // Dès qu’un abonnement change (opt-in / token / etc.), on resync
