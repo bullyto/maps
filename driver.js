@@ -24,6 +24,7 @@ const els = {
 
 const LS = {
   pinOk: "adn_driver_pin_ok_v1",
+  lastPushSubId: "adn_driver_push_subid_v1",
 };
 
 const driverToken = getOrCreateDriverToken();
@@ -56,7 +57,6 @@ function updateDriverMarker(lat, lng) {
   if (markerDriver) markerDriver.setLatLng(lastDriverLatLng);
 }
 
-
 function showPinGate() {
   els.overlay.style.display = "flex";
   els.app.style.display = "none";
@@ -67,13 +67,6 @@ function showPinGate() {
 function hidePinGate() {
   els.overlay.style.display = "none";
   els.app.style.display = "block";
-}
-
-function checkPin() {
-  const ok = localStorage.getItem(LS.pinOk) === "1";
-  if (ok) return true;
-  showPinGate();
-  return false;
 }
 
 function acceptPin() {
@@ -88,18 +81,9 @@ function acceptPin() {
   }
 }
 
-
-// --- Notifications (OneSignal) ---
-// Objectif: ajouter un simple bouton "Activer notifications" sans impacter la carte / GPS.
-const OneSignal = window.OneSignal || [];
-window.OneSignal = OneSignal;
-let oneSignalInited = false;
-
-function ensureOneSignalStub() {
-  // OneSignal v16 charge un global, mais on sécurise au cas où
-  window.OneSignal = window.OneSignal || [];
-  return window.OneSignal;
-}
+// ----------------------------
+// NOTIFICATIONS (OneSignal v16)
+// ----------------------------
 
 function setNotifBtnState(state) {
   // state: "idle" | "working" | "granted" | "denied"
@@ -119,86 +103,12 @@ function setNotifBtnState(state) {
     els.btnNotif.textContent = "⛔ Notifications refusées";
     return;
   }
-  // idle
   els.btnNotif.disabled = false;
   els.btnNotif.textContent = "🔔 Activer notifications";
 }
 
-function initOneSignal() {
-  if (oneSignalInited) return true;
-  if (!ONESIGNAL_APP_ID) return false;
-
-  try {
-    ensureOneSignalStub();
-
-    // On force OneSignal à utiliser TON sw.js + ton scope (évite le conflit de SW)
-    OneSignal.push(async () => {
-      try {
-        await OneSignal.init({
-          appId: ONESIGNAL_APP_ID,
-          notifyButton: { enable: false },
-
-          // 🔒 IMPORTANT : OneSignal utilise le même SW que ta PWA
-          serviceWorkerPath: "./sw.js",
-          serviceWorkerUpdaterPath: "./sw.js",
-          serviceWorkerParam: { scope: "./" },
-        });
-      } catch (e) {
-        console.log("[OneSignal] init error:", e);
-      }
-    });
-
-    oneSignalInited = true;
-    return true;
-  } catch (e) {
-    console.log("[OneSignal] init failed:", e);
-    return false;
-  }
-}
-
-async function requestNotifications() {
-  // ✅ La version "qui marche" : SW -> init -> requestPermission dans OneSignal.push
-  try {
-    setNotifBtnState("working");
-
-    // SW d'abord (sinon OneSignal peut partir sur un autre scope)
-    await registerSW();
-
-    const ok = initOneSignal();
-    if (!ok) {
-      // fallback si OneSignal pas dispo
-      const perm = await (Notification?.requestPermission?.() ?? Promise.resolve("default"));
-      const granted = perm === "granted" || (Notification && Notification.permission === "granted");
-      setNotifBtnState(granted ? "granted" : (perm === "denied" ? "denied" : "idle"));
-      return;
-    }
-
-    // OneSignal API v16 : doit se faire après init, donc on met tout dans push()
-    await new Promise((resolve) => {
-      OneSignal.push(async () => {
-        try {
-          await OneSignal.Notifications.requestPermission();
-        } catch (e) {
-          console.log("[OneSignal] requestPermission error:", e);
-          try { await Notification.requestPermission(); } catch (_) {}
-        }
-        resolve();
-      });
-    });
-
-    const perm = (Notification && Notification.permission) ? Notification.permission : "default";
-    if (perm === "granted") setNotifBtnState("granted");
-    else if (perm === "denied") setNotifBtnState("denied");
-    else setNotifBtnState("idle");
-  } catch (e) {
-    console.log("[Notif] error:", e);
-    setNotifBtnState("idle");
-  }
-}
-
-
-async function registerSW() {
-  // SW uniquement ici (livreur)
+async function registerSWForDriverPwa() {
+  // SW PWA (offline/cache) pour /maps/
   try {
     if ("serviceWorker" in navigator) {
       await navigator.serviceWorker.register("./sw.js", { scope: "./" });
@@ -206,10 +116,116 @@ async function registerSW() {
   } catch (_) {}
 }
 
-function recenter() {
-  if (lastDriverLatLng) {
-    map.setView(lastDriverLatLng, 15);
+let oneSignalInitPromise = null;
+
+function initOneSignal() {
+  if (oneSignalInitPromise) return oneSignalInitPromise;
+
+  oneSignalInitPromise = (async () => {
+    if (!ONESIGNAL_APP_ID) return null;
+
+    // Pattern recommandé v16 : OneSignalDeferred
+    window.OneSignalDeferred = window.OneSignalDeferred || [];
+    const OneSignalDeferred = window.OneSignalDeferred;
+
+    // On wrap dans une Promise pour attendre que init soit vraiment fini
+    return await new Promise((resolve) => {
+      OneSignalDeferred.push(async (OneSignal) => {
+        try {
+          await OneSignal.init({
+            appId: ONESIGNAL_APP_ID,
+            notifyButton: { enable: false },
+
+            // OneSignal SW dédié (évite conflit avec ton sw.js)
+            serviceWorkerPath: "./OneSignalSDKWorker.js",
+            serviceWorkerUpdaterPath: "./OneSignalSDKUpdaterWorker.js",
+            serviceWorkerParam: { scope: "./push/" }, // le dossier push/ doit exister
+          });
+
+          // Dès qu’un abonnement change (opt-in / token / etc.), on resync
+          try {
+            OneSignal.User.PushSubscription.addEventListener("change", async () => {
+              await syncPushToWorker(OneSignal).catch(() => {});
+            });
+          } catch (_) {}
+
+          resolve(OneSignal);
+        } catch (e) {
+          console.log("[OneSignal] init error:", e);
+          resolve(null);
+        }
+      });
+    });
+  })();
+
+  return oneSignalInitPromise;
+}
+
+async function syncPushToWorker(OneSignal) {
+  // Récupère l’ID d’abonnement (subscription id) côté OneSignal
+  // C’est LA valeur à stocker chez toi pour pouvoir cibler le push.
+  const optedIn = !!OneSignal?.User?.PushSubscription?.optedIn;
+  const subId = OneSignal?.User?.PushSubscription?.id || "";
+
+  if (!optedIn || !subId) return { ok: false, reason: "not_opted_in_or_no_id" };
+
+  // Anti-spam: n’enregistre pas 50 fois le même id
+  const last = localStorage.getItem(LS.lastPushSubId) || "";
+  if (last === subId) return { ok: true, already: true, subscription_id: subId };
+
+  // 👉 ICI : ton Worker doit stocker driver_token -> subscription_id dans D1
+  const res = await apiFetchJson(`${API_BASE}/push/register`, {
+    method: "POST",
+    body: JSON.stringify({
+      driver_token: driverToken,
+      subscription_id: subId,
+      ts: Date.now(),
+    }),
+  });
+
+  localStorage.setItem(LS.lastPushSubId, subId);
+  return { ok: true, subscription_id: subId, res };
+}
+
+async function requestNotifications() {
+  try {
+    setNotifBtnState("working");
+
+    // 1) Ton SW PWA (pas obligatoire pour OneSignal, mais ok)
+    await registerSWForDriverPwa();
+
+    // 2) Init OneSignal (avec son scope push/)
+    const OneSignal = await initOneSignal();
+    if (!OneSignal) {
+      // fallback navigateur (rare)
+      const perm = await (Notification?.requestPermission?.() ?? Promise.resolve("default"));
+      setNotifBtnState(perm === "granted" ? "granted" : (perm === "denied" ? "denied" : "idle"));
+      return;
+    }
+
+    // 3) Demande permission OneSignal
+    await OneSignal.Notifications.requestPermission();
+
+    const perm = (Notification && Notification.permission) ? Notification.permission : "default";
+    if (perm === "granted") {
+      // 4) IMPORTANT : enregistre la subscription chez TON Worker
+      await syncPushToWorker(OneSignal).catch((e) => console.log("[push/register] error", e));
+      setNotifBtnState("granted");
+    } else if (perm === "denied") {
+      setNotifBtnState("denied");
+    } else {
+      setNotifBtnState("idle");
+    }
+  } catch (e) {
+    console.log("[Notif] error:", e);
+    setNotifBtnState("idle");
   }
+}
+
+// ----------------------------
+
+function recenter() {
+  if (lastDriverLatLng) map.setView(lastDriverLatLng, 15);
 }
 
 async function startDriverGps() {
@@ -230,9 +246,7 @@ async function startDriverGps() {
     const speed = pos.coords.speed ?? null;
     const heading = pos.coords.heading ?? null;
 
-    // Met à jour la carte
     updateDriverMarker(lat, lng);
-    // Premier fix: on recentre une fois
     if (!didCenterOnce) {
       didCenterOnce = true;
       try { map.setView([lat, lng], 15); } catch {}
@@ -265,9 +279,7 @@ async function startDriverGps() {
 }
 
 function stopDriverGps() {
-  try {
-    if (watchId != null) navigator.geolocation.clearWatch(watchId);
-  } catch {}
+  try { if (watchId != null) navigator.geolocation.clearWatch(watchId); } catch {}
   watchId = null;
   setText(els.gpsState, "Inactif");
   if (els.btnGps) { els.btnGps.disabled = false; els.btnGps.textContent = "Activer GPS"; }
@@ -288,6 +300,18 @@ async function decide(session, decision, minutes=null) {
     body: JSON.stringify(payload),
   });
 }
+
+function mkBtn(label, cls) {
+  const b = document.createElement("button");
+  b.className = cls;
+  b.textContent = label;
+  return b;
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+
+const DEFAULT_ACCEPT_MINUTES = MAX_MINUTES;
 
 function actionRow(row, kind) {
   const name = (row.client_name || "").trim() || (row.client_id || "Client");
@@ -322,24 +346,11 @@ function actionRow(row, kind) {
   const btnMinus  = mkBtn("-5", "smallBtn cyan");
   const btnStop   = mkBtn("Stop", "smallBtn bad");
 
-  // Defaults
-  if (kind === "pending") {
-    btnPlus.disabled = true;
-    btnMinus.disabled = true;
-    btnStop.disabled = true;
-  } else {
-    btnAccept.disabled = true;
-    btnDeny.disabled = true;
-  }
+  if (kind === "pending") { btnPlus.disabled = true; btnMinus.disabled = true; btnStop.disabled = true; }
+  else { btnAccept.disabled = true; btnDeny.disabled = true; }
 
-  btnAccept.onclick = async () => {
-    btnAccept.disabled = true;
-    try { await decide(row.session, "accept", MAX_MINUTES); } finally {}
-  };
-  btnDeny.onclick = async () => {
-    btnDeny.disabled = true;
-    try { await decide(row.session, "deny"); } finally {}
-  };
+  btnAccept.onclick = async () => { btnAccept.disabled = true; try { await decide(row.session, "accept", MAX_MINUTES); } finally {} };
+  btnDeny.onclick   = async () => { btnDeny.disabled = true;   try { await decide(row.session, "deny"); } finally {} };
 
   btnPlus.onclick = async () => {
     const cur = (row.status === "pending" ? DEFAULT_ACCEPT_MINUTES : (minutesRemaining(row.expires_ts) ?? DEFAULT_ACCEPT_MINUTES));
@@ -351,17 +362,12 @@ function actionRow(row, kind) {
     const next = Math.min(MAX_MINUTES, Math.max(1, cur - 5));
     try { await decide(row.session, "accept", next); } finally {}
   };
-  btnStop.onclick = async () => {
-    btnStop.disabled = true;
-    try { await decide(row.session, "stop"); } finally {}
-  };
+  btnStop.onclick = async () => { btnStop.disabled = true; try { await decide(row.session, "stop"); } finally {} };
 
   actions.append(btnAccept, btnDeny, btnPlus, btnMinus, btnStop);
-
   div.appendChild(top);
   div.appendChild(actions);
 
-  // Click recentre sur le client
   div.addEventListener("click", (e) => {
     if (e.target.closest("button")) return;
     if (typeof row.client_lat === "number" && typeof row.client_lng === "number") {
@@ -372,21 +378,9 @@ function actionRow(row, kind) {
   return div;
 }
 
-function mkBtn(label, cls) {
-  const b = document.createElement("button");
-  b.className = cls;
-  b.textContent = label;
-  return b;
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
-}
-
-function upsertClientMarker(row, kind) {
+function upsertClientMarker(row) {
   const s = row.session;
   sessionData.set(s, row);
-
   const hasCoords = typeof row.client_lat === "number" && typeof row.client_lng === "number";
   if (!hasCoords) return;
 
@@ -396,56 +390,10 @@ function upsertClientMarker(row, kind) {
   if (!m) {
     m = L.marker(ll, { icon: ICON_CLIENT });
     m.addTo(map);
-    m.on("click", () => openClientPopup(row));
     markers.set(s, m);
   } else {
     m.setLatLng(ll);
   }
-}
-
-function openClientPopup(row) {
-  const name = (row.client_name || "").trim() || (row.client_id || "Client");
-  const rem = minutesRemaining(row.expires_ts);
-  const kind = row.status === "pending" ? "pending" : "active";
-
-  const wrap = document.createElement("div");
-  wrap.style.minWidth = "220px";
-  wrap.innerHTML = `<div style="font-weight:900;margin-bottom:6px">${escapeHtml(name)}</div>
-                    <div style="opacity:.8;font-size:12px;margin-bottom:8px">${kind==="pending"?"Demande en attente":"Suivi actif"}${rem!=null?` • ~${rem}min`: ""}</div>`;
-
-  const rowBtns = document.createElement("div");
-  rowBtns.style.display = "flex";
-  rowBtns.style.gap = "8px";
-  rowBtns.style.flexWrap = "wrap";
-
-  const bA = mkBtn("Accepter", "smallBtn good");
-  const bR = mkBtn("Refuser", "smallBtn bad");
-  const bP = mkBtn("+5", "smallBtn cyan");
-  const bM = mkBtn("-5", "smallBtn cyan");
-  const bS = mkBtn("Stop", "smallBtn bad");
-
-  if (kind === "pending") { bP.disabled = true; bM.disabled = true; bS.disabled = true; }
-  else { bA.disabled = true; bR.disabled = true; }
-
-  bA.onclick = async () => { try { await decide(row.session,"accept",MAX_MINUTES); } finally {} };
-  bR.onclick = async () => { try { await decide(row.session,"deny"); } finally {} };
-  bP.onclick = async () => {
-    const cur = (row.status === "pending" ? DEFAULT_ACCEPT_MINUTES : (minutesRemaining(row.expires_ts) ?? DEFAULT_ACCEPT_MINUTES));
-    const next = Math.min(MAX_MINUTES, Math.max(1, cur + 5));
-    try { await decide(row.session,"accept",next); } finally {}
-  };
-  bM.onclick = async () => {
-    const cur = (row.status === "pending" ? DEFAULT_ACCEPT_MINUTES : (minutesRemaining(row.expires_ts) ?? DEFAULT_ACCEPT_MINUTES));
-    const next = Math.min(MAX_MINUTES, Math.max(1, cur - 5));
-    try { await decide(row.session,"accept",next); } finally {}
-  };
-  bS.onclick = async () => { try { await decide(row.session,"stop"); } finally {} };
-
-  rowBtns.append(bA,bR,bP,bM,bS);
-  wrap.appendChild(rowBtns);
-
-  const m = markers.get(row.session);
-  if (m) m.bindPopup(wrap).openPopup();
 }
 
 function pruneMarkers(validSessions) {
@@ -469,35 +417,25 @@ async function refreshDashboard() {
     setText(els.pendingCount, String(pending.length));
     setText(els.lastUpdate, "—");
 
-    // Latest driver pos (optional)
     if (data.latest && typeof data.latest.lat === "number" && typeof data.latest.lng === "number") {
       lastDriverLatLng = [data.latest.lat, data.latest.lng];
       markerDriver.setLatLng(lastDriverLatLng);
     }
 
-    // Render lists
     els.listPending.innerHTML = "";
-    if (pending.length === 0) {
-      els.listPending.innerHTML = `<div class="item" style="opacity:.8">Aucune demande.</div>`;
-    } else {
-      for (const r of pending) els.listPending.appendChild(actionRow(r, "pending"));
-    }
+    if (pending.length === 0) els.listPending.innerHTML = `<div class="item" style="opacity:.8">Aucune demande.</div>`;
+    else for (const r of pending) els.listPending.appendChild(actionRow(r, "pending"));
 
     els.listActive.innerHTML = "";
-    if (active.length === 0) {
-      els.listActive.innerHTML = `<div class="item" style="opacity:.8">Aucun suivi actif.</div>`;
-    } else {
-      for (const r of active) els.listActive.appendChild(actionRow(r, "active"));
-    }
+    if (active.length === 0) els.listActive.innerHTML = `<div class="item" style="opacity:.8">Aucun suivi actif.</div>`;
+    else for (const r of active) els.listActive.appendChild(actionRow(r, "active"));
 
-    // Markers
     const valid = new Set();
-    for (const r of pending) { valid.add(r.session); r.status="pending"; upsertClientMarker(r,"pending"); }
-    for (const r of active)  { valid.add(r.session); r.status="active";  upsertClientMarker(r,"active"); }
+    for (const r of pending) { valid.add(r.session); r.status="pending"; upsertClientMarker(r); }
+    for (const r of active)  { valid.add(r.session); r.status="active";  upsertClientMarker(r); }
     pruneMarkers(valid);
-
   } catch {
-    // ignore (réseau)
+    // ignore
   }
 }
 
@@ -509,15 +447,15 @@ function startDashboardLoop() {
 }
 
 function bootAfterGate() {
-  // État initial bouton notifications
   try {
-    const perm = (Notification && Notification.permission) ? Notification.permission : 'default';
-    if (perm === 'granted') setNotifBtnState('granted');
-    else if (perm === 'denied') setNotifBtnState('denied');
-    else setNotifBtnState('idle');
+    const perm = (Notification && Notification.permission) ? Notification.permission : "default";
+    if (perm === "granted") setNotifBtnState("granted");
+    else if (perm === "denied") setNotifBtnState("denied");
+    else setNotifBtnState("idle");
   } catch (_) {}
+
   initMap();
-  registerSW();
+  registerSWForDriverPwa();
   setText(els.gpsState, "Inactif");
   setText(els.lastUpdate, "—");
 
@@ -530,7 +468,6 @@ function bootAfterGate() {
 }
 
 function boot() {
-  // Gate PIN
   if (localStorage.getItem(LS.pinOk) === "1") {
     hidePinGate();
     bootAfterGate();
