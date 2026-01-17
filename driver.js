@@ -139,7 +139,6 @@ function initOneSignal() {
             // OneSignal SW dédié (évite conflit avec ton sw.js)
             serviceWorkerPath: "./OneSignalSDKWorker.js",
             serviceWorkerUpdaterPath: "./OneSignalSDKUpdaterWorker.js",
-            serviceWorkerParam: { scope: "./push/" }, // le dossier push/ doit exister
           });
 
           // Dès qu’un abonnement change (opt-in / token / etc.), on resync
