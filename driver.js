@@ -163,7 +163,6 @@ function initOneSignal() {
 
 async function syncPushToWorker(OneSignal) {
   // Récupère l’ID d’abonnement (subscription id) côté OneSignal
-  // C’est LA valeur à stocker chez toi pour pouvoir cibler le push.
   const optedIn = !!OneSignal?.User?.PushSubscription?.optedIn;
   const subId = OneSignal?.User?.PushSubscription?.id || "";
 
@@ -173,7 +172,6 @@ async function syncPushToWorker(OneSignal) {
   const last = localStorage.getItem(LS.lastPushSubId) || "";
   if (last === subId) return { ok: true, already: true, subscription_id: subId };
 
-  // 👉 ICI : ton Worker doit stocker driver_token -> subscription_id dans D1
   const res = await apiFetchJson(`${API_BASE}/push/register`, {
     method: "POST",
     body: JSON.stringify({
@@ -185,6 +183,18 @@ async function syncPushToWorker(OneSignal) {
 
   localStorage.setItem(LS.lastPushSubId, subId);
   return { ok: true, subscription_id: subId, res };
+}
+
+// ✅ NOUVEAU : attendre que OneSignal ait VRAIMENT un subscription_id
+async function waitForPushSubscriptionId(OneSignal, timeoutMs = 10000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const optedIn = !!OneSignal?.User?.PushSubscription?.optedIn;
+    const subId = OneSignal?.User?.PushSubscription?.id || "";
+    if (optedIn && subId) return subId;
+    await new Promise((r) => setTimeout(r, 350));
+  }
+  return "";
 }
 
 async function requestNotifications() {
@@ -208,8 +218,35 @@ async function requestNotifications() {
 
     const perm = (Notification && Notification.permission) ? Notification.permission : "default";
     if (perm === "granted") {
-      // 4) IMPORTANT : enregistre la subscription chez TON Worker
-      await syncPushToWorker(OneSignal).catch((e) => console.log("[push/register] error", e));
+      // ✅ IMPORTANT : certains navigateurs ont "granted" mais OneSignal n'a pas encore le subId
+      // On force opt-in si l'API est dispo
+      try {
+        if (OneSignal?.User?.PushSubscription && OneSignal.User.PushSubscription.optedIn !== true) {
+          if (typeof OneSignal.User.PushSubscription.optIn === "function") {
+            await OneSignal.User.PushSubscription.optIn();
+          }
+        }
+      } catch (e) {
+        console.log("[push] optIn error:", e);
+      }
+
+      // ✅ attendre que subId existe vraiment
+      const subId = await waitForPushSubscriptionId(OneSignal, 12000);
+      if (!subId) {
+        console.log("[push] granted but no subscription_id (timeout)");
+        setNotifBtnState("idle");
+        return;
+      }
+
+      // 4) Enregistre la subscription chez TON Worker
+      const r = await syncPushToWorker(OneSignal).catch((e) => {
+        console.log("[push/register] error", e);
+        return null;
+      });
+
+      // Debug utile
+      console.log("[push] register result:", r);
+
       setNotifBtnState("granted");
     } else if (perm === "denied") {
       setNotifBtnState("denied");
@@ -315,7 +352,7 @@ const DEFAULT_ACCEPT_MINUTES = MAX_MINUTES;
 
 function actionRow(row, kind) {
   const name = (row.client_name || "").trim() || (row.client_id || "Client");
-  const rem = minutesRemaining(row.expires_ts);
+  const rem = minutesRemaining(row.expiresTs);
   const meta = kind === "pending"
     ? `Demande • expire dans ${Math.max(0, Math.ceil((Number(row.expires_ts||0)-Date.now())/60000))} min`
     : `Actif • reste ~${rem ?? "?"} min`;
