@@ -1,0 +1,15 @@
+{
+  "name": "Apéro de Nuit 66 • Suivi Client",
+  "short_name": "Suivi Client",
+  "description": "Page client : demander le suivi au livreur.",
+  "lang": "fr",
+  "start_url": "./client.html",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#0b1c2d",
+  "background_color": "#0b1c2d",
+  "icons": [
+    { "src": "./assets/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./assets/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
