@@ -1,2 +1,1 @@
-// Updater bridge for OneSignal
-importScripts('./OneSignalSDKWorker.js');
+importScripts('OneSignalSDKWorker.js');

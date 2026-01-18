@@ -1,3 +1,1 @@
-// Bridge worker for OneSignal (GitHub Pages /maps/)
-// We keep your existing sw.js (cache/offline) and let it load OneSignal's SDK.
-importScripts('./sw.js');
+importScripts("https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js");
