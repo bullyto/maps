@@ -79,11 +79,14 @@ function setPopupVisible(visible) {
 }
 
 function updatePopupVisibility() {
-  // Popup visible only when access is not active (remaining <= 0)
-  const hasActiveAccess =
-    STATE.status === "accepted" &&
-    STATE.accessRemainingMs != null &&
-    STATE.accessRemainingMs > 0;
+  // RÈGLE UX:
+  // - La popup DOIT disparaître dès que l'accès est "accepté" (chrono en cours)
+  //   même si le backend n'a pas encore renvoyé remainingMs.
+  // - Elle DOIT réapparaître quand le temps arrive à 0 (accès terminé).
+
+  const isAccepted = STATE.status === "accepted";
+  const remaining = STATE.accessRemainingMs;
+  const hasActiveAccess = isAccepted && (remaining == null || remaining > 0);
 
   setPopupVisible(!hasActiveAccess);
 }
@@ -512,8 +515,22 @@ function startAcceptedLoops() {
     STATE.accessRemainingMs = Math.max(0, STATE.accessRemainingMs - 1000);
     setCountdown(fmtRemaining(STATE.accessRemainingMs));
     if (STATE.accessRemainingMs <= 0) {
+      // Fin d'accès -> la popup doit réapparaître
+      STATE.status = "expired";
+
       setBadge("Accès terminé");
       setState("Accès terminé");
+      setCountdown("0:00");
+
+      // Stop des boucles "suivi actif"
+      stopTimer(STATE.tSendClientPos);
+      STATE.tSendClientPos = null;
+      stopTimer(STATE.tPollDriver);
+      STATE.tPollDriver = null;
+      stopTimer(STATE.tCountdown);
+      STATE.tCountdown = null;
+
+      disableRequest(false);
       showReset(true);
     }
   }, 1000);
