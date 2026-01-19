@@ -207,3 +207,90 @@ a{color:inherit;text-decoration:none}
 .btnDanger:disabled{opacity:.45}
 
 .btnRow{display:flex;gap:10px;align-items:center;justify-content:flex-start;flex-wrap:wrap}
+
+/* =============================
+   CLIENT (page client.html)
+   Objectif: pro / minimaliste / rassurant
+   ============================= */
+
+body.client .wrap{max-width: 980px;}
+
+body.client .clientMain{
+  margin-top: 14px;
+  display: grid;
+  gap: 14px;
+}
+
+/* Carte mise en avant */
+body.client .clientMapWrap{
+  margin-top: 0;
+}
+
+body.client #map{
+  height: min(62vh, 560px);
+  min-height: 380px;
+}
+
+/* Panneau pro, compact */
+body.client .clientPanel{
+  padding: 14px;
+}
+
+body.client .clientPanelTop{
+  display: grid;
+  gap: 12px;
+}
+
+@media(min-width:760px){
+  body.client .clientPanelTop{
+    grid-template-columns: 1.2fr .8fr;
+    align-items: start;
+  }
+}
+
+body.client .clientChips{
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+body.client .chip{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  border:1px solid rgba(255,255,255,.12);
+  background: rgba(0,0,0,.14);
+  font-weight: 900;
+  font-size: 13px;
+  line-height: 1;
+}
+
+body.client .chipI{opacity:.9}
+
+body.client .clientForm{margin-top: 12px;}
+
+body.client .clientBtnRow{
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+@media(min-width:760px){
+  body.client .clientBtnRow{
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+body.client .clientHint{
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.12);
+  opacity: .92;
+  font-size: 13px;
+  line-height: 1.35;
+}
