@@ -82,16 +82,16 @@ a{color:inherit;text-decoration:none}
   box-shadow: var(--shadow);
 }
 
-/* --- POPUP CLIENT : UNE SEULE DEFINITION (évite les conflits) --- */
 .clientPopup{
+  /* v5: popup truly centered on viewport and smaller */
   position: fixed;
-  z-index: 4000;
+  z-index: 9999;
   pointer-events: auto;
   left: 50%;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 74px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
   transform: translateX(-50%);
-  width: min(92vw, 340px);
-  max-width: 340px;
+  width: min(88vw, 360px);
+  max-width: 360px;
   padding: 10px 10px 12px;
   border-radius: 16px;
   border: 1px solid rgba(255,255,255,.12);
@@ -101,7 +101,7 @@ a{color:inherit;text-decoration:none}
   box-shadow: 0 18px 55px rgba(0,0,0,.42);
 }
 
-/* compact (typographies + boutons) */
+/* Make the popup compact (smaller text/buttons) */
 .clientPopup .card{ margin-top:8px; padding:10px; border-radius: 16px; }
 .clientPopup .h1{ font-size:16px; margin:0 0 4px; }
 .clientPopup .p{ font-size:12px; }
@@ -299,6 +299,7 @@ a{color:inherit;text-decoration:none}
 .modal h2{margin:0 0 6px;font-size:20px}
 .modal p{margin:0 0 12px; opacity:.9}
 
+
 .btnSmall{padding:10px 12px;font-size:14px;border-radius:14px}
 .btnDanger{border-color:rgba(255,90,90,.35);background:rgba(255,90,90,.10)}
 .btnDanger:disabled{opacity:.45}
@@ -321,7 +322,6 @@ body.client .clientShell{
   width: 100%;
 }
 
-/* IMPORTANT: map full viewport */
 body.client .clientMapWrap{
   position: absolute;
   inset: 0;
@@ -332,8 +332,6 @@ body.client #map{
   height: 100%;
   width: 100%;
   border-radius: 24px;
-  position: relative;
-  z-index: 1;
 }
 
 /* Bandeau haut compact (logo + chrono + statut) */
@@ -360,18 +358,40 @@ body.client .topBrandLogo{
 
 body.client .topBrandText{display:none;}
 
-/* Fix: popup centré + stable sur mobile (barre URL qui bouge) */
+/* Pop-up bas: plus petit + translucide */
 body.client .clientPopup{
-  left: 50%;
-  right: auto;
-  transform: translateX(-50%);
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 74px);
+  /*
+    MOBILE FIX:
+    - fixed keeps the popup stable when the browser UI (address bar) expands/collapses
+    - prevents the "flash then disappear" effect during Leaflet init on some devices
+  */
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(env(safe-area-inset-bottom) + 64px);
+  z-index: 3000;
+
+  /* centre + garde des marges */
+  padding: 0 12px;
+  display: flex;
+  justify-content: center;
+
+  /* v6: pas de flash au chargement, JS pilote l'affichage */
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease;
 }
 
-/* Pop-up card */
+body.client .clientPopup.isVisible{
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+}
+
 body.client .clientPopupCard{
-  width: min(340px, 92vw);
-  margin: 0 auto;
+  width: min(320px, 100%);
+  margin: 0;
   border-radius: 18px;
   border: 1px solid rgba(255,255,255,.14);
   background: linear-gradient(180deg, rgba(12,26,40,.72), rgba(10,20,30,.62));
@@ -379,10 +399,14 @@ body.client .clientPopupCard{
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   padding: 12px;
+
+  /* v6: popup -15% */
+  transform: scale(0.85);
+  transform-origin: bottom center;
 }
 
-body.client .clientPopupTitle{font-size: 16px; margin:0 0 6px;}
-body.client .clientPopupSub{margin:0 0 10px; opacity:.9; font-size:12px; line-height:1.3}
+body.client .clientPopupTitle{font-size: 18px; margin:0 0 6px;}
+body.client .clientPopupSub{margin:0 0 10px; opacity:.9; font-size:13px; line-height:1.3}
 
 body.client .clientChips{display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin: 10px 0 0;}
 body.client .chip{font-size: 12px; padding: 8px 10px;}
@@ -391,15 +415,13 @@ body.client .clientForm{margin-top: 10px;}
 body.client .clientBtnRow{display:grid; gap:10px; margin-top: 10px;}
 
 body.client .clientInput{
-  font-size: 14px;
-  padding: 10px 12px;
-  border-radius: 14px;
+  font-size: 16px;
+  padding: 12px 12px;
 }
 
 body.client .clientBtn{
-  padding: 10px 12px;
-  font-size: 14px;
-  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 15px;
 }
 
 /* Barre légale fixée en bas */

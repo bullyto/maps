@@ -18,6 +18,7 @@ const els = {
   countdown: document.getElementById("countdown"),
   geoText: document.getElementById("geoText"),
   map: document.getElementById("map"),
+  popup: document.querySelector(".clientPopup"),
 };
 
 const LS = {
@@ -61,10 +62,30 @@ function setState(text) {
 
 function setCountdown(text) {
   if (els.countdown) els.countdown.textContent = text;
+  updatePopupVisibility();
 }
 
 function setGeo(text) {
   if (els.geoText) els.geoText.textContent = text;
+}
+
+function setPopupVisible(visible) {
+  if (!els.popup) return;
+  if (visible) {
+    els.popup.classList.add("isVisible");
+  } else {
+    els.popup.classList.remove("isVisible");
+  }
+}
+
+function updatePopupVisibility() {
+  // Popup visible only when access is not active (remaining <= 0)
+  const hasActiveAccess =
+    STATE.status === "accepted" &&
+    STATE.accessRemainingMs != null &&
+    STATE.accessRemainingMs > 0;
+
+  setPopupVisible(!hasActiveAccess);
 }
 
 function toast(msg) {
