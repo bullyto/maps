@@ -1,94 +1,632 @@
 import { CONFIG } from "./config.js";
 
-// Client web: envoie une demande de suivi au livreur (Telegram via Worker)
-// -> Worker: /client/request-tracking?key=CLIENT_KEY&from=...
+// ------------------------------------------------------------
+// Client web (Suivi)
+// ------------------------------------------------------------
+// Règles:
+//  - Le client DOIT partager sa position pour voir le livreur.
+//  - Le client ne voit jamais les autres clients.
+//  - Pendant l'attente de décision, le bouton est bloqué.
+//  - Si accepté: accès temporaire (défaut 30 minutes) + révocable.
 
-const STATE = {
-  lastRequestMs: 0,
-  cooldownMs: (CONFIG.REQUEST_COOLDOWN_MS ?? (CONFIG.REQUEST_COOLDOWN_SEC * 1000) ?? 30000)
+const els = {
+  name: document.getElementById("name"),
+  btnRequest: document.getElementById("btnRequest"),
+  btnReset: document.getElementById("btnReset"),
+  badge: document.getElementById("statusBadge"),
+  stateText: document.getElementById("stateText"),
+  countdown: document.getElementById("countdown"),
+  geoText: document.getElementById("geoText"),
+  map: document.getElementById("map"),
 };
 
-function qs(id) { return document.getElementById(id); }
+const LS = {
+  prefix: CONFIG.LS_PREFIX || "adn66_track_",
+  name: (CONFIG.LS_PREFIX || "adn66_track_") + "name",
+  requestId: (CONFIG.LS_PREFIX || "adn66_track_") + "requestId",
+  clientId: (CONFIG.LS_PREFIX || "adn66_track_") + "clientId",
+  lastRequestMs: (CONFIG.LS_PREFIX || "adn66_track_") + "lastRequestMs",
+};
 
+const STATE = {
+  map: null,
+  markerClient: null,
+  markerDriver: null,
+  clientPos: null, // {lat,lng,acc,ts}
+  watchId: null,
+
+  // session
+  requestId: "",
+  clientId: "",
+  status: "idle", // idle|pending|accepted|refused|expired|error
+
+  // timers
+  tPollStatus: null,
+  tPollDriver: null,
+  tSendClientPos: null,
+  tCountdown: null,
+  accessRemainingMs: null,
+};
+
+// ----------------------------
+// UI helpers
+// ----------------------------
 function setBadge(text) {
-  const el = qs("statusBadge");
-  if (el) el.textContent = text;
+  if (els.badge) els.badge.textContent = text;
+}
+
+function setState(text) {
+  if (els.stateText) els.stateText.textContent = text;
+}
+
+function setCountdown(text) {
+  if (els.countdown) els.countdown.textContent = text;
+}
+
+function setGeo(text) {
+  if (els.geoText) els.geoText.textContent = text;
 }
 
 function toast(msg) {
-  // simple, compatible mobile
   alert(msg);
 }
 
-function canRequest() {
-  const delta = Date.now() - STATE.lastRequestMs;
-  return delta >= STATE.cooldownMs;
+function fmtRemaining(ms) {
+  if (ms == null) return "—";
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, "0")}`;
 }
 
-function formatFrom() {
-  // "from" sert juste à aider le livreur à identifier la demande.
-  // Ici on met un identifiant simple: timestamp + userAgent light.
-  const t = new Date();
-  const hh = String(t.getHours()).padStart(2, "0");
-  const mm = String(t.getMinutes()).padStart(2, "0");
-  const ss = String(t.getSeconds()).padStart(2, "0");
-  return `client_${hh}${mm}${ss}`;
+function stopTimer(id) {
+  if (id) clearInterval(id);
 }
 
-async function requestTracking() {
-  if (!canRequest()) {
-    const remain = Math.ceil((STATE.cooldownMs - (Date.now() - STATE.lastRequestMs)) / 1000);
+function stopTimeout(id) {
+  if (id) clearTimeout(id);
+}
+
+function disableRequest(disabled) {
+  if (els.btnRequest) els.btnRequest.disabled = !!disabled;
+}
+
+function showReset(show) {
+  if (els.btnReset) els.btnReset.style.display = show ? "inline-block" : "none";
+}
+
+// ----------------------------
+// LocalStorage helpers
+// ----------------------------
+function lsGet(k, def = "") {
+  try {
+    const v = localStorage.getItem(k);
+    return v == null ? def : v;
+  } catch {
+    return def;
+  }
+}
+
+function lsSet(k, v) {
+  try {
+    localStorage.setItem(k, String(v));
+  } catch {}
+}
+
+function lsDel(k) {
+  try {
+    localStorage.removeItem(k);
+  } catch {}
+}
+
+// ----------------------------
+// API helpers
+// ----------------------------
+function buildUrl(path, params = {}) {
+  const u = new URL(CONFIG.API_BASE + path);
+  u.searchParams.set("key", CONFIG.CLIENT_KEY);
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && String(v).length > 0) {
+      u.searchParams.set(k, String(v));
+    }
+  }
+  return u.toString();
+}
+
+async function apiFetchJson(path, { method = "GET", params = {}, body = null } = {}) {
+  const url = buildUrl(path, params);
+  const init = {
+    method,
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+    },
+  };
+  if (body != null) {
+    init.headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(body);
+  }
+
+  const resp = await fetch(url, init);
+  let data = null;
+  try {
+    data = await resp.json();
+  } catch {
+    data = null;
+  }
+
+  if (!resp.ok) {
+    const msg = (data && (data.error || data.message)) || `HTTP ${resp.status}`;
+    throw new Error(msg);
+  }
+  if (data && data.ok === false) {
+    throw new Error(data.error || data.message || "api_error");
+  }
+  return data;
+}
+
+// ----------------------------
+// MAP (Leaflet)
+// ----------------------------
+const ICON_CLIENT = L.icon({
+  iconUrl: "./icons/marker-client.svg",
+  iconSize: [44, 44],
+  iconAnchor: [22, 44],
+});
+const ICON_DRIVER = L.icon({
+  iconUrl: "./icons/marker-driver.svg",
+  iconSize: [48, 48],
+  iconAnchor: [24, 48],
+});
+
+function initMap() {
+  const map = L.map("map", { zoomControl: true });
+  map.setView([42.6887, 2.8948], 13);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap",
+  }).addTo(map);
+
+  const markerClient = L.marker([42.6887, 2.8948], { icon: ICON_CLIENT }).addTo(map);
+  markerClient.bindPopup("Vous");
+
+  const markerDriver = L.marker([42.6887, 2.8948], { icon: ICON_DRIVER }).addTo(map);
+  markerDriver.bindPopup("Livreur");
+
+  STATE.map = map;
+  STATE.markerClient = markerClient;
+  STATE.markerDriver = markerDriver;
+}
+
+function updateClientMarker(lat, lng) {
+  if (!STATE.markerClient) return;
+  STATE.markerClient.setLatLng([lat, lng]);
+}
+
+function updateDriverMarker(lat, lng) {
+  if (!STATE.markerDriver) return;
+  STATE.markerDriver.setLatLng([lat, lng]);
+}
+
+function fitIfBoth() {
+  if (!STATE.map || !STATE.markerClient || !STATE.markerDriver) return;
+  const a = STATE.markerClient.getLatLng();
+  const b = STATE.markerDriver.getLatLng();
+  const bounds = L.latLngBounds([a, b]);
+  STATE.map.fitBounds(bounds.pad(0.25));
+}
+
+// ----------------------------
+// GEOLOCATION
+// ----------------------------
+function ensureGeolocationAvailable() {
+  return !!(navigator && navigator.geolocation);
+}
+
+function startGeolocation() {
+  if (!ensureGeolocationAvailable()) {
+    setGeo("⛔ Géolocalisation indisponible sur ce navigateur");
+    disableRequest(true);
+    return;
+  }
+
+  setGeo("📍 Demande d'accès à votre position…");
+
+  const onOk = (pos) => {
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+    const acc = pos.coords.accuracy;
+    const ts = pos.timestamp || Date.now();
+
+    STATE.clientPos = { lat, lng, acc, ts };
+    updateClientMarker(lat, lng);
+
+    setGeo(`✅ Position partagée (±${Math.round(acc)}m)`);
+
+    // Si on avait désactivé avant, on réactive uniquement si pas en attente
+    if (STATE.status === "idle" || STATE.status === "refused" || STATE.status === "expired" || STATE.status === "error") {
+      disableRequest(false);
+    }
+  };
+
+  const onErr = (err) => {
+    console.log("[geo] error", err);
+    setGeo("⛔ Position refusée : impossible d'afficher le livreur");
+    disableRequest(true);
+  };
+
+  // 1) Un premier point
+  navigator.geolocation.getCurrentPosition(onOk, onErr, {
+    enableHighAccuracy: true,
+    timeout: 15000,
+    maximumAge: 0,
+  });
+
+  // 2) Watch pour suivre le mouvement
+  try {
+    STATE.watchId = navigator.geolocation.watchPosition(onOk, onErr, {
+      enableHighAccuracy: true,
+      maximumAge: 0,
+      timeout: 20000,
+    });
+  } catch {
+    // ignore
+  }
+}
+
+// ----------------------------
+// SESSION / STATE MACHINE
+// ----------------------------
+function loadSession() {
+  const requestId = lsGet(LS.requestId, "");
+  const clientId = lsGet(LS.clientId, "");
+  const name = lsGet(LS.name, "");
+
+  if (els.name && name) els.name.value = name;
+
+  if (requestId && clientId) {
+    STATE.requestId = requestId;
+    STATE.clientId = clientId;
+    STATE.status = "pending";
+    return true;
+  }
+  return false;
+}
+
+function saveSession({ requestId, clientId, name }) {
+  lsSet(LS.requestId, requestId);
+  lsSet(LS.clientId, clientId);
+  lsSet(LS.name, name);
+}
+
+function clearSession() {
+  lsDel(LS.requestId);
+  lsDel(LS.clientId);
+  // on garde le nom
+  STATE.requestId = "";
+  STATE.clientId = "";
+}
+
+function canRequestNow() {
+  const last = Number(lsGet(LS.lastRequestMs, "0")) || 0;
+  const cooldown = CONFIG.REQUEST_COOLDOWN_MS || 30000;
+  const delta = Date.now() - last;
+  return delta >= cooldown;
+}
+
+function setRequestedNow() {
+  lsSet(LS.lastRequestMs, String(Date.now()));
+}
+
+function stopAllLoops() {
+  stopTimer(STATE.tCountdown);
+  stopTimer(STATE.tPollDriver);
+  stopTimer(STATE.tSendClientPos);
+  stopTimeout(STATE.tPollStatus);
+  STATE.tCountdown = null;
+  STATE.tPollDriver = null;
+  STATE.tSendClientPos = null;
+  STATE.tPollStatus = null;
+}
+
+function resetFlow({ keepName = true } = {}) {
+  stopAllLoops();
+  clearSession();
+  STATE.status = "idle";
+  STATE.accessRemainingMs = null;
+
+  setBadge("Prêt : demande de suivi");
+  setState("—");
+  setCountdown("—");
+
+  disableRequest(!STATE.clientPos);
+  showReset(false);
+
+  if (!keepName && els.name) {
+    els.name.value = "";
+    lsDel(LS.name);
+  }
+}
+
+// ----------------------------
+// API Calls
+// ----------------------------
+async function sendClientPositionUpdate() {
+  if (!STATE.clientId || !STATE.clientPos) return;
+
+  const name = (els.name?.value || lsGet(LS.name, "") || "").trim().slice(0, 40);
+
+  try {
+    await apiFetchJson("/client/position/update", {
+      method: "POST",
+      body: {
+        clientId: STATE.clientId,
+        name,
+        lat: STATE.clientPos.lat,
+        lng: STATE.clientPos.lng,
+        ts: STATE.clientPos.ts || Date.now(),
+      },
+    });
+  } catch (e) {
+    // silencieux (réseau)
+    console.log("[client_pos_update]", e?.message || e);
+  }
+}
+
+async function pollDriverPosition() {
+  if (!STATE.clientId) return;
+
+  try {
+    const data = await apiFetchJson("/client/driver-position", {
+      method: "GET",
+      params: { clientId: STATE.clientId },
+    });
+
+    // data.driver peut être null si le livreur n'a pas encore posté
+    if (data && data.driver && Number.isFinite(Number(data.driver.lat)) && Number.isFinite(Number(data.driver.lng))) {
+      updateDriverMarker(Number(data.driver.lat), Number(data.driver.lng));
+      fitIfBoth();
+    }
+
+    if (typeof data.remainingMs === "number") {
+      STATE.accessRemainingMs = data.remainingMs;
+    }
+  } catch (e) {
+    // accès coupé / expiré / pas de pos client
+    console.log("[driver_position]", e?.message || e);
+
+    STATE.status = "expired";
+    setBadge("Accès terminé");
+    setState("Accès terminé");
+    setCountdown("0:00");
+
+    disableRequest(false);
+    showReset(true);
+
+    stopTimer(STATE.tPollDriver);
+    stopTimer(STATE.tSendClientPos);
+    STATE.tPollDriver = null;
+    STATE.tSendClientPos = null;
+  }
+}
+
+async function pollStatus() {
+  if (!STATE.requestId) return;
+
+  try {
+    const data = await apiFetchJson("/client/status", {
+      method: "GET",
+      params: { requestId: STATE.requestId },
+    });
+
+    const status = String(data.status || "").toLowerCase();
+    STATE.status = status || "pending";
+
+    if (status === "pending") {
+      setBadge("Demande envoyée • en attente");
+      setState("En attente de décision");
+      setCountdown("—");
+
+      // re-planifie
+      STATE.tPollStatus = setTimeout(pollStatus, CONFIG.POLL_STATUS_MS || 3000);
+      return;
+    }
+
+    if (status === "refused") {
+      setBadge("Refusé");
+      setState("Refusé par le livreur");
+      setCountdown("—");
+
+      disableRequest(false);
+      showReset(true);
+      return;
+    }
+
+    if (status === "expired") {
+      setBadge("Expiré");
+      setState("Demande expirée");
+      setCountdown("—");
+
+      disableRequest(false);
+      showReset(true);
+      return;
+    }
+
+    if (status === "accepted") {
+      setBadge("Autorisé ✅");
+      setState("Suivi actif");
+
+      if (typeof data.remainingMs === "number") {
+        STATE.accessRemainingMs = data.remainingMs;
+      }
+
+      // stop polling status
+      stopTimeout(STATE.tPollStatus);
+      STATE.tPollStatus = null;
+
+      // Boucles accepted
+      startAcceptedLoops();
+      return;
+    }
+
+    // fallback
+    setBadge("Statut inconnu");
+    setState(status || "—");
+    STATE.tPollStatus = setTimeout(pollStatus, CONFIG.POLL_STATUS_MS || 3000);
+  } catch (e) {
+    console.log("[status]", e?.message || e);
+    setBadge("Erreur statut");
+    setState("Erreur réseau");
+
+    // On réessaie sans bloquer définitivement
+    STATE.tPollStatus = setTimeout(pollStatus, CONFIG.POLL_STATUS_MS || 3000);
+  }
+}
+
+function startAcceptedLoops() {
+  // Envoie position client régulièrement (condition obligatoire)
+  stopTimer(STATE.tSendClientPos);
+  STATE.tSendClientPos = setInterval(sendClientPositionUpdate, CONFIG.SEND_CLIENT_POS_MS || 8000);
+  // premier envoi immédiat
+  sendClientPositionUpdate();
+
+  // Poll driver position
+  stopTimer(STATE.tPollDriver);
+  STATE.tPollDriver = setInterval(pollDriverPosition, CONFIG.POLL_DRIVER_MS || 3000);
+  pollDriverPosition();
+
+  // Countdown UI
+  stopTimer(STATE.tCountdown);
+  STATE.tCountdown = setInterval(() => {
+    if (STATE.accessRemainingMs == null) {
+      setCountdown("—");
+      return;
+    }
+    STATE.accessRemainingMs = Math.max(0, STATE.accessRemainingMs - 1000);
+    setCountdown(fmtRemaining(STATE.accessRemainingMs));
+    if (STATE.accessRemainingMs <= 0) {
+      setBadge("Accès terminé");
+      setState("Accès terminé");
+      showReset(true);
+    }
+  }, 1000);
+}
+
+// ----------------------------
+// Actions
+// ----------------------------
+async function handleRequestClick() {
+  const name = (els.name?.value || "").trim().slice(0, 40);
+  if (!name) {
+    toast("Entre ton prénom.");
+    return;
+  }
+
+  // Sauvegarde nom
+  lsSet(LS.name, name);
+
+  if (!STATE.clientPos) {
+    toast("Tu dois accepter de partager ta position pour voir le livreur.");
+    return;
+  }
+
+  if (!canRequestNow()) {
+    const last = Number(lsGet(LS.lastRequestMs, "0")) || 0;
+    const cooldown = CONFIG.REQUEST_COOLDOWN_MS || 30000;
+    const remain = Math.ceil((cooldown - (Date.now() - last)) / 1000);
     toast(`Attends ${remain}s avant de redemander.`);
     return;
   }
 
-  const btn = qs("btnRequest");
-  const btn2 = qs("btnReset");
-
   try {
-    if (btn) btn.disabled = true;
-    setBadge("Envoi de la demande...");
+    disableRequest(true);
+    showReset(false);
+    setBadge("Envoi de la demande…");
+    setState("Envoi en cours");
+    setCountdown("—");
 
-    const url = new URL(CONFIG.API_BASE + "/client/request-tracking");
-    url.searchParams.set("key", CONFIG.CLIENT_KEY);
-    url.searchParams.set("from", formatFrom());
-
-    const r = await fetch(url.toString(), {
-      method: "GET",
-      cache: "no-store",
-      headers: { "Accept": "application/json" }
+    const data = await apiFetchJson("/client/request", {
+      method: "POST",
+      body: {
+        name,
+        lat: STATE.clientPos.lat,
+        lng: STATE.clientPos.lng,
+        ts: STATE.clientPos.ts || Date.now(),
+      },
     });
 
-    let data = null;
-    try { data = await r.json(); } catch (_) {}
+    // Persist session
+    STATE.requestId = String(data.requestId || "");
+    STATE.clientId = String(data.clientId || "");
+    STATE.status = "pending";
 
-    if (!r.ok || (data && data.ok === false)) {
-      const err = (data && (data.error || data.message)) || `HTTP ${r.status}`;
-      throw new Error(err);
+    if (!STATE.requestId || !STATE.clientId) {
+      throw new Error("missing_request_or_client_id");
     }
 
-    STATE.lastRequestMs = Date.now();
-    setBadge("Demande envoyée au livreur ✅");
+    saveSession({ requestId: STATE.requestId, clientId: STATE.clientId, name });
+    setRequestedNow();
 
-    if (btn2) btn2.style.display = "inline-block";
+    setBadge("Demande envoyée • en attente");
+    setState("En attente de décision");
+
+    // Pendant pending: bouton bloqué
+    disableRequest(true);
+    showReset(false);
+
+    // On démarre le polling
+    stopTimeout(STATE.tPollStatus);
+    STATE.tPollStatus = setTimeout(pollStatus, 400);
+
     toast("✅ Demande envoyée. Le livreur a reçu une notification.");
   } catch (e) {
     console.error(e);
-    setBadge("Erreur : réessaie");
-    toast(`❌ Impossible d'envoyer la demande: ${e.message || e}`);
-  } finally {
-    if (btn) btn.disabled = false;
+    setBadge("Erreur");
+    setState("Impossible d'envoyer la demande");
+    disableRequest(false);
+    showReset(true);
+    toast(`❌ Erreur: ${e?.message || e}`);
   }
 }
 
-function init() {
-  const btn = qs("btnRequest");
-  const btn2 = qs("btnReset");
-
-  if (btn) btn.addEventListener("click", requestTracking);
-  if (btn2) btn2.addEventListener("click", requestTracking);
-
-  setBadge("Prêt : demande de suivi");
+function handleResetClick() {
+  resetFlow({ keepName: true });
 }
 
-document.addEventListener("DOMContentLoaded", init);
+// ----------------------------
+// Boot
+// ----------------------------
+function boot() {
+  initMap();
+
+  // init UI
+  setBadge("Prêt : demande de suivi");
+  setState("—");
+  setCountdown("—");
+  setGeo("—");
+
+  if (els.btnRequest) els.btnRequest.addEventListener("click", handleRequestClick);
+  if (els.btnReset) els.btnReset.addEventListener("click", handleResetClick);
+
+  // Geo
+  startGeolocation();
+
+  // Restore session (si page rechargée en plein pending/accepted)
+  const hasSession = loadSession();
+  if (hasSession) {
+    setBadge("Reprise du suivi…");
+    setState("Reprise");
+    disableRequest(true);
+    showReset(false);
+
+    // Relance polling
+    stopTimeout(STATE.tPollStatus);
+    STATE.tPollStatus = setTimeout(pollStatus, 600);
+  } else {
+    disableRequest(!STATE.clientPos);
+    showReset(false);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", boot);

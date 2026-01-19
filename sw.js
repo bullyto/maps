@@ -4,7 +4,7 @@
   - AUCUN OneSignal ici.
 */
 
-const VERSION = "v2026-01-18-client";
+const VERSION = "v2026-01-19-client";
 const CACHE = `adn66-client-${VERSION}`;
 
 const ASSETS = [
