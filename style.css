@@ -83,21 +83,34 @@ a{color:inherit;text-decoration:none}
 }
 
 .clientPopup{
-  position:absolute;
+  /* v5: popup truly centered on viewport and smaller */
+  position: fixed;
   z-index: 9999;
   pointer-events: auto;
   left: 50%;
-  bottom: 12px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
   transform: translateX(-50%);
-  width: min(92vw, 420px);
-  padding: 12px;
-  border-radius: 18px;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(10, 24, 38, .58);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 22px 70px rgba(0,0,0,.45);
+  width: min(88vw, 360px);
+  max-width: 360px;
+  padding: 10px 10px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(10, 24, 38, .52);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 18px 55px rgba(0,0,0,.42);
 }
+
+/* Make the popup compact (smaller text/buttons) */
+.clientPopup .card{ margin-top:8px; padding:10px; border-radius: 16px; }
+.clientPopup .h1{ font-size:16px; margin:0 0 4px; }
+.clientPopup .p{ font-size:12px; }
+.clientPopup .pill{ font-size:12px; padding:8px 10px; }
+.clientPopup .input{ padding:10px 12px; border-radius: 14px; font-size:14px; }
+.clientPopup .btn{ padding:10px 12px; border-radius: 14px; font-size:14px; }
+.clientPopup .btn.secondary{ font-weight:800; }
+.clientPopup .kpi{ padding:10px; border-radius: 14px; }
+.clientPopup .kpi .v{ font-size:16px; }
 
 .popupTitle{font-size: 18px; font-weight: 950; margin:0 0 6px;}
 .popupHint{margin:0 0 10px; opacity:.88; line-height:1.35; font-size: 13px;}
