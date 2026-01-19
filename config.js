@@ -9,7 +9,7 @@ export const CONFIG = {
   // Clé partagée (doit correspondre au secret Cloudflare: CLIENT_KEY)
   // IMPORTANT: remplace par TA vraie clé (valeur de CLIENT_KEY dans Cloudflare)
   // Exemple si tu utilises la meme pour tout pendant les tests: "0000"
-  CLIENT_KEY: "0000",
+  CLIENT_KEY: "test123",
 
   // Polling / rafraichissement (ms)
   POLL_STATUS_MS: 3000,
