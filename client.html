@@ -13,33 +13,41 @@
 </head>
 <body class="client">
   <div class="wrap clientWrap">
-    <header class="topbar clientTopbar">
-      <div class="brand">
-        <img alt="Apéro de Nuit 66" src="https://raw.githubusercontent.com/bullyto/apero/main/assets/logo-header.png">
+    <header class="clientTopbar" aria-label="Bandeau suivi">
+      <div class="topPill topBrand" aria-label="Marque">
+        <img class="topBrandLogo" alt="Apéro de Nuit 66" src="https://raw.githubusercontent.com/bullyto/apero/main/assets/logo-header.png">
+        <div class="topBrandText">
+          <div class="topBrandName">APÉRO DE NUIT 66</div>
+          <div class="topBrandSub" id="statusBadge">Suivi sécurisé</div>
+        </div>
       </div>
-      <div class="badge"><span class="dot"></span><span id="statusBadge">Suivi sécurisé</span></div>
+
+      <div class="topPill topTimer" aria-label="Temps restant">
+        <span class="topIcon" aria-hidden="true">⏱️</span>
+        <span id="countdown">—</span>
+      </div>
+
+      <div class="topPill topState" aria-label="État">
+        <span class="dot" aria-hidden="true"></span>
+        <span id="stateText">—</span>
+      </div>
     </header>
 
     <main class="clientMain">
-      <div class="mapWrap clientMapWrap">
+      <div class="mapWrap clientMapWrap" aria-label="Carte">
         <div id="map"></div>
-      </div>
 
-      <section class="card clientPanel" aria-label="Panneau de suivi">
-        <div class="clientPanelTop">
-          <div>
-            <h1 class="h1" style="margin:0">Suivi en direct</h1>
-            <p class="p" style="margin-top:6px">Suivi privé et temporaire. Vous seul voyez le livreur.</p>
-          </div>
-          <div class="clientChips" aria-label="Statuts">
-            <div class="chip"><span class="chipI">🟢</span><span id="stateText">—</span></div>
-            <div class="chip"><span class="chipI">⏱️</span><span id="countdown">—</span></div>
-            <div class="chip"><span class="chipI">📍</span><span id="geoText">en attente…</span></div>
-          </div>
-        </div>
+        <!-- Popup minimaliste au-dessus de la carte -->
+        <section class="clientPopup" aria-label="Panneau de suivi">
+          <h1 class="popupTitle">Suivi en direct</h1>
+          <p class="popupSub">Pour activer le suivi, indiquez votre prénom (visible uniquement par votre livreur).</p>
 
-        <div class="clientForm">
-          <label class="p" style="display:block;margin:0 0 8px;opacity:.85;font-weight:800;">Votre prénom (affiché au livreur)</label>
+          <div class="popupRow" aria-label="Statut géolocalisation">
+            <span class="popupRowI" aria-hidden="true">📍</span>
+            <span id="geoText">en attente…</span>
+          </div>
+
+          <label class="popupLabel" for="name">Votre prénom</label>
           <input id="name" class="input" maxlength="24" placeholder="Ex: Lucas">
 
           <div class="clientBtnRow">
@@ -47,11 +55,9 @@
             <button id="btnReset" class="btn secondary" style="display:none">Relancer</button>
           </div>
 
-          <div class="clientHint">
-            🔒 Suivi privé • 👤 Vous seul • ⏱️ Accès temporaire (ce n’est pas un temps de livraison)
-          </div>
-        </div>
-      </section>
+          <div class="clientHint">🔒 Privé • 👤 Vous seul • ⏱️ Accès temporaire (pas un temps de livraison)</div>
+        </section>
+      </div>
     </main>
   </div>
 

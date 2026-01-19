@@ -39,6 +39,86 @@ a{color:inherit;text-decoration:none}
   box-shadow: var(--shadow);
 }
 
+/* =========================
+   CLIENT (design minimal)
+   ========================= */
+
+.clientTopbar{padding: 12px 12px;}
+.clientTopRow{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;}
+
+.pill{
+  display:flex;align-items:center;gap:10px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
+  box-shadow: 0 14px 40px rgba(0,0,0,.28);
+}
+.pill.compact{padding: 10px 12px;}
+
+.pillBrand{gap:10px; min-width: 0;}
+.brandLogo{height: 28px; width: 28px; border-radius: 10px; display:block;}
+.brandStack{display:flex;flex-direction:column;min-width:0;line-height:1.05;}
+.brandTitle{font-weight:900;font-size:12px;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.brandSub{font-size:11px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+.pillTimer{min-width: 96px; justify-content:center; font-weight:900;}
+.pillTimer .ico{font-size:16px;opacity:.95;}
+
+.pillState{min-width: 150px; justify-content:center; font-weight:900;}
+.pillState .dot{animation:none; box-shadow:none;}
+
+.clientMain{margin-top: 12px;}
+.clientMapWrap{position:relative;}
+.clientMap{
+  width: 100%;
+  height: calc(100vh - 170px);
+  min-height: 360px;
+  border-radius: 22px;
+  overflow:hidden;
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow);
+}
+
+.clientPopup{
+  position:absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  padding: 14px;
+  border-radius: 22px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(10, 24, 38, .58);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 22px 70px rgba(0,0,0,.45);
+}
+
+.popupTitle{font-size: 20px; font-weight: 950; margin:0 0 6px;}
+.popupHint{margin:0 0 12px; opacity:.88; line-height:1.35;}
+
+.popupForm{display:grid; gap:10px;}
+.popupForm .label{font-size: 12px; opacity:.85; font-weight:800;}
+
+.popupRow{
+  display:flex; align-items:center; gap:10px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px dashed rgba(255,255,255,.18);
+  background: rgba(255,255,255,.04);
+  font-weight: 800;
+}
+
+.popupFooter{
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+  font-size: 13px;
+  opacity: .9;
+}
+
 .brand{
   display:flex;align-items:center;gap:12px;min-width:0;
 }
