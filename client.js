@@ -1,401 +1,644 @@
-// client.js
-// Version SAFE (ne casse rien) :
-// - récupère bien le prénom (clientName)
-// - demande la géoloc proprement (permissions + watchPosition)
-// - envoie /client/request puis /client/position/update
-// - affiche des statuts clairs au lieu de rester bloqué "en attente..."
+import { CONFIG } from "./config.js";
 
-// ============================
-// CONFIG
-// ============================
-const CFG = (window.CONFIG || window.APP_CONFIG || {});
-const WORKER_BASE_URL = String(
-  CFG.WORKER_BASE_URL ||
-  CFG.workerBaseUrl ||
-  "https://and-suivi.apero-nuit-du-66.workers.dev"
-).replace(/\/+$/, "");
+// ------------------------------------------------------------
+// Client web (Suivi)
+// ------------------------------------------------------------
+// Règles:
+//  - Le client DOIT partager sa position pour voir le livreur.
+//  - Le client ne voit jamais les autres clients.
+//  - Pendant l'attente de décision, le bouton est bloqué.
+//  - Si accepté: accès temporaire (défaut 30 minutes) + révocable.
 
-const CLIENT_KEY = String(
-  CFG.CLIENT_KEY ||
-  CFG.clientKey ||
-  "test123"
-);
+const els = {
+  name: document.getElementById("name"),
+  btnRequest: document.getElementById("btnRequest"),
+  btnReset: document.getElementById("btnReset"),
+  badge: document.getElementById("statusBadge"),
+  stateText: document.getElementById("stateText"),
+  countdown: document.getElementById("countdown"),
+  geoText: document.getElementById("geoText"),
+  map: document.getElementById("map"),
+};
 
-const DEFAULT_POLL_MS = Number(CFG.CLIENT_POLL_MS || 1500);
-const GEO_TIMEOUT_MS = Number(CFG.GEO_TIMEOUT_MS || 12000);
-const GEO_MAX_AGE_MS = Number(CFG.GEO_MAX_AGE_MS || 5000);
+const LS = {
+  prefix: CONFIG.LS_PREFIX || "adn66_track_",
+  name: (CONFIG.LS_PREFIX || "adn66_track_") + "name",
+  requestId: (CONFIG.LS_PREFIX || "adn66_track_") + "requestId",
+  clientId: (CONFIG.LS_PREFIX || "adn66_track_") + "clientId",
+  lastRequestMs: (CONFIG.LS_PREFIX || "adn66_track_") + "lastRequestMs",
+};
 
-// ============================
-// DOM HELPERS
-// ============================
-const $ = (sel) => document.querySelector(sel);
+const STATE = {
+  map: null,
+  markerClient: null,
+  markerDriver: null,
+  clientPos: null, // {lat,lng,acc,ts}
+  watchId: null,
 
-function setText(el, txt) {
-  if (!el) return;
-  el.textContent = txt;
+  // session
+  requestId: "",
+  clientId: "",
+  status: "idle", // idle|pending|accepted|refused|expired|error
+
+  // timers
+  tPollStatus: null,
+  tPollDriver: null,
+  tSendClientPos: null,
+  tCountdown: null,
+  accessRemainingMs: null,
+};
+
+// ----------------------------
+// UI helpers
+// ----------------------------
+function setBadge(text) {
+  if (els.badge) els.badge.textContent = text;
 }
 
-function setHtml(el, html) {
-  if (!el) return;
-  el.innerHTML = html;
+function setState(text) {
+  if (els.stateText) els.stateText.textContent = text;
 }
 
-function now() { return Date.now(); }
-
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
+function setCountdown(text) {
+  if (els.countdown) els.countdown.textContent = text;
 }
 
-function clamp(n, a, b) {
-  return Math.max(a, Math.min(b, n));
+function setGeo(text) {
+  if (els.geoText) els.geoText.textContent = text;
 }
 
-// ============================
-// ELEMENTS (tolérant)
-// ============================
-const elNameInput =
-  $("#clientName") ||
-  $("#client-name") ||
-  $("input[name='clientName']") ||
-  $("input[placeholder*='Lucas']") ||
-  $("input");
-
-const elBtn =
-  $("#btnRequest") ||
-  $("#btn-request") ||
-  $("button[type='submit']") ||
-  $("button");
-
-const elGeo =
-  $("#geoStatus") ||
-  $("#geo-status") ||
-  $("#geolocStatus") ||
-  $("#geoloc-status") ||
-  $("#geo") ||
-  null;
-
-const elState =
-  $("#state") ||
-  $("#status") ||
-  $("#etat") ||
-  $("#etatStatus") ||
-  null;
-
-const elRemaining =
-  $("#remaining") ||
-  $("#timeRemaining") ||
-  $("#tempsRestant") ||
-  null;
-
-const elDebug =
-  $("#debug") ||
-  $("#log") ||
-  null;
-
-// ============================
-// STORAGE KEYS
-// ============================
-const LS_CLIENT_ID = "adn66_client_id";
-const LS_REQUEST_ID = "adn66_request_id";
-const LS_CLIENT_NAME = "adn66_client_name";
-
-// ============================
-// API
-// ============================
-async function apiFetch(path, { method = "GET", query = {}, body = null } = {}) {
-  const url = new URL(WORKER_BASE_URL + path);
-  for (const [k, v] of Object.entries(query || {})) {
-    if (v !== undefined && v !== null && String(v).length) url.searchParams.set(k, String(v));
-  }
-
-  const opts = {
-    method,
-    headers: {
-      "Accept": "application/json",
-    },
-  };
-
-  if (body !== null) {
-    opts.headers["Content-Type"] = "application/json; charset=utf-8";
-    opts.body = JSON.stringify(body);
-  }
-
-  const resp = await fetch(url.toString(), opts);
-  const text = await resp.text();
-  let json;
-  try { json = text ? JSON.parse(text) : {}; } catch { json = { ok: false, error: "invalid_json", raw: text }; }
-
-  if (!resp.ok) {
-    const msg = json?.error || `HTTP_${resp.status}`;
-    throw new Error(msg);
-  }
-  if (json && json.ok === false) {
-    throw new Error(json.error || "api_error");
-  }
-  return json;
+function toast(msg) {
+  alert(msg);
 }
 
-// ============================
-// GEOLOCATION
-// ============================
-let lastPos = null;
-let watchId = null;
-
-function geoSupported() {
-  return !!(navigator.geolocation && typeof navigator.geolocation.watchPosition === "function");
-}
-
-function geoStatus(text) {
-  setText(elGeo, text);
-}
-
-function stateStatus(text) {
-  setText(elState, text);
-}
-
-function remainingStatus(text) {
-  setText(elRemaining, text);
-}
-
-function debug(text) {
-  if (!elDebug) return;
-  setText(elDebug, text);
-}
-
-function startWatchGeo() {
-  if (!geoSupported()) {
-    geoStatus("❌ Géolocalisation indisponible (navigateur)");
-    return;
-  }
-
-  geoStatus("📍 Géolocalisation : en attente… (autoriser la position)");
-
-  const options = {
-    enableHighAccuracy: true,
-    timeout: GEO_TIMEOUT_MS,
-    maximumAge: GEO_MAX_AGE_MS,
-  };
-
-  try {
-    if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-
-    watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const c = pos.coords || {};
-        lastPos = {
-          lat: Number(c.latitude),
-          lng: Number(c.longitude),
-          acc: Number(c.accuracy || 0),
-          ts: pos.timestamp ? Number(pos.timestamp) : now(),
-        };
-
-        const accTxt = lastPos.acc ? ` (±${Math.round(lastPos.acc)}m)` : "";
-        geoStatus(`✅ Géolocalisation : position partagée${accTxt}`);
-      },
-      (err) => {
-        // Codes: 1 PERMISSION_DENIED, 2 POSITION_UNAVAILABLE, 3 TIMEOUT
-        let msg = "❌ Géolocalisation : erreur";
-        if (err && err.code === 1) msg = "❌ Géolocalisation : refusée (autoriser la position)";
-        else if (err && err.code === 2) msg = "❌ Géolocalisation : indisponible";
-        else if (err && err.code === 3) msg = "⏳ Géolocalisation : délai dépassé (réessaye)";
-        geoStatus(msg);
-      },
-      options
-    );
-  } catch (e) {
-    geoStatus("❌ Géolocalisation : erreur");
-  }
-}
-
-// ============================
-// CLIENT FLOW
-// ============================
-function getOrCreateClientId() {
-  let id = localStorage.getItem(LS_CLIENT_ID);
-  if (!id) {
-    id = "c_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
-    localStorage.setItem(LS_CLIENT_ID, id);
-  }
-  return id;
-}
-
-function getSavedRequest() {
-  return {
-    requestId: localStorage.getItem(LS_REQUEST_ID) || "",
-    clientName: localStorage.getItem(LS_CLIENT_NAME) || "",
-  };
-}
-
-function saveRequest(requestId, clientName) {
-  localStorage.setItem(LS_REQUEST_ID, requestId);
-  localStorage.setItem(LS_CLIENT_NAME, clientName);
-}
-
-function clearRequest() {
-  localStorage.removeItem(LS_REQUEST_ID);
-  // on garde le clientName en mémoire si tu veux
-}
-
-async function sendClientRequest(clientName) {
-  const clientId = getOrCreateClientId();
-
-  stateStatus("Envoi de la demande…");
-  remainingStatus("—");
-
-  const res = await apiFetch("/client/request", {
-    method: "POST",
-    query: { key: CLIENT_KEY },
-    body: { clientName, clientId },
-  });
-
-  // worker renvoie: { ok:true, requestId, clientId, status:"pending" }
-  const requestId = String(res.requestId || "");
-  if (!requestId) throw new Error("request_id_missing");
-
-  saveRequest(requestId, clientName);
-  stateStatus("Demande envoyée ✅ (en attente du livreur)");
-  return requestId;
-}
-
-async function sendClientPositionIfAny() {
-  const { requestId } = getSavedRequest();
-  if (!requestId) return;
-
-  if (!lastPos || !Number.isFinite(lastPos.lat) || !Number.isFinite(lastPos.lng)) return;
-
-  const clientId = getOrCreateClientId();
-
-  await apiFetch("/client/position/update", {
-    method: "POST",
-    query: { key: CLIENT_KEY },
-    body: {
-      clientId,
-      lat: lastPos.lat,
-      lng: lastPos.lng,
-      ts: lastPos.ts || now(),
-    },
-  });
-}
-
-function formatMs(ms) {
+function fmtRemaining(ms) {
+  if (ms == null) return "—";
   const s = Math.max(0, Math.floor(ms / 1000));
   const m = Math.floor(s / 60);
   const r = s % 60;
-  if (m <= 0) return `${r}s`;
-  return `${m}m ${String(r).padStart(2, "0")}s`;
+  return `${m}:${String(r).padStart(2, "0")}`;
 }
 
-async function pollStatusLoop() {
-  while (true) {
-    const { requestId } = getSavedRequest();
+function stopTimer(id) {
+  if (id) clearInterval(id);
+}
 
-    try {
-      if (requestId) {
-        // pousse la position client régulièrement
-        await sendClientPositionIfAny();
+function stopTimeout(id) {
+  if (id) clearTimeout(id);
+}
 
-        const clientId = getOrCreateClientId();
+function disableRequest(disabled) {
+  if (els.btnRequest) els.btnRequest.disabled = !!disabled;
+}
 
-        const st = await apiFetch("/client/status", {
-          method: "GET",
-          query: { key: CLIENT_KEY, requestId },
-        });
+function showReset(show) {
+  if (els.btnReset) els.btnReset.style.display = show ? "inline-block" : "none";
+}
 
-        // st: { ok:true, request:{status...}, access:{remainingMs?} }
-        const status = st?.request?.status;
-
-        if (status === "pending") {
-          stateStatus("En attente de validation du livreur…");
-          remainingStatus("—");
-        } else if (status === "accepted") {
-          stateStatus("✅ Suivi accepté");
-          const remainingMs = Number(st?.access?.remainingMs || 0);
-          remainingStatus(formatMs(remainingMs));
-
-          // option : récup position livreur (si ton UI l’utilise ailleurs)
-          // await apiFetch("/client/driver-position", { method:"GET", query:{ key: CLIENT_KEY, clientId } });
-        } else if (status === "refused") {
-          stateStatus("❌ Refusé par le livreur");
-          remainingStatus("—");
-          // on peut clearRequest si tu veux repartir propre
-          // clearRequest();
-        } else {
-          stateStatus("—");
-          remainingStatus("—");
-        }
-      } else {
-        // pas de demande en cours
-        stateStatus("—");
-        remainingStatus("—");
-      }
-
-      debug(""); // vide
-    } catch (e) {
-      // En cas de perte réseau (4G faible), on affiche une erreur simple
-      const msg = String(e?.message || e);
-      debug(msg);
-
-      // si c’est un "not_found", on reset la request
-      if (msg === "not_found") clearRequest();
-    }
-
-    await sleep(DEFAULT_POLL_MS);
+// ----------------------------
+// LocalStorage helpers
+// ----------------------------
+function lsGet(k, def = "") {
+  try {
+    const v = localStorage.getItem(k);
+    return v == null ? def : v;
+  } catch {
+    return def;
   }
 }
 
-// ============================
-// UI BINDINGS
-// ============================
-function normalizeName(s) {
-  return String(s || "").trim();
+function lsSet(k, v) {
+  try {
+    localStorage.setItem(k, String(v));
+  } catch {}
 }
 
-function lockButton(lock, text) {
-  if (!elBtn) return;
-  elBtn.disabled = !!lock;
-  if (text) elBtn.textContent = text;
+function lsDel(k) {
+  try {
+    localStorage.removeItem(k);
+  } catch {}
 }
 
-async function onClickRequest() {
-  const name = normalizeName(elNameInput ? elNameInput.value : "");
-  if (!name) {
-    alert("Erreur: client_name_required");
+// ----------------------------
+// API helpers
+// ----------------------------
+function buildUrl(path, params = {}) {
+  const u = new URL(CONFIG.API_BASE + path);
+  u.searchParams.set("key", CONFIG.CLIENT_KEY);
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && String(v).length > 0) {
+      u.searchParams.set(k, String(v));
+    }
+  }
+  return u.toString();
+}
+
+async function apiFetchJson(path, { method = "GET", params = {}, body = null } = {}) {
+  const url = buildUrl(path, params);
+  const init = {
+    method,
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+    },
+  };
+  if (body != null) {
+    init.headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(body);
+  }
+
+  const resp = await const nameInput = document.querySelector("#clientName");
+const clientName = nameInput?.value?.trim();
+if (!clientName) {
+  alert("Veuillez entrer votre prénom");
+  return;
+}
+await fetch(CONFIG.API_BASE + "/client/request?key=" + CONFIG.CLIENT_KEY, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ clientName })
+});
+  let data = null;
+  try {
+    data = await resp.json();
+  } catch {
+    data = null;
+  }
+
+  if (!resp.ok) {
+    const msg = (data && (data.error || data.message)) || `HTTP ${resp.status}`;
+    throw new Error(msg);
+  }
+  if (data && data.ok === false) {
+    throw new Error(data.error || data.message || "api_error");
+  }
+  return data;
+}
+
+// ----------------------------
+// MAP (Leaflet)
+// ----------------------------
+const ICON_CLIENT = L.icon({
+  iconUrl: "./icons/marker-client.svg",
+  iconSize: [44, 44],
+  iconAnchor: [22, 44],
+});
+const ICON_DRIVER = L.icon({
+  iconUrl: "./icons/marker-driver.svg",
+  iconSize: [48, 48],
+  iconAnchor: [24, 48],
+});
+
+function initMap() {
+  const map = L.map("map", { zoomControl: true });
+  map.setView([42.6887, 2.8948], 13);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap",
+  }).addTo(map);
+
+  const markerClient = L.marker([42.6887, 2.8948], { icon: ICON_CLIENT }).addTo(map);
+  markerClient.bindPopup("Vous");
+
+  const markerDriver = L.marker([42.6887, 2.8948], { icon: ICON_DRIVER }).addTo(map);
+  markerDriver.bindPopup("Livreur");
+
+  STATE.map = map;
+  STATE.markerClient = markerClient;
+  STATE.markerDriver = markerDriver;
+}
+
+function updateClientMarker(lat, lng) {
+  if (!STATE.markerClient) return;
+  STATE.markerClient.setLatLng([lat, lng]);
+}
+
+function updateDriverMarker(lat, lng) {
+  if (!STATE.markerDriver) return;
+  STATE.markerDriver.setLatLng([lat, lng]);
+}
+
+function fitIfBoth() {
+  if (!STATE.map || !STATE.markerClient || !STATE.markerDriver) return;
+  const a = STATE.markerClient.getLatLng();
+  const b = STATE.markerDriver.getLatLng();
+  const bounds = L.latLngBounds([a, b]);
+  STATE.map.fitBounds(bounds.pad(0.25));
+}
+
+// ----------------------------
+// GEOLOCATION
+// ----------------------------
+function ensureGeolocationAvailable() {
+  return !!(navigator && navigator.geolocation);
+}
+
+function startGeolocation() {
+  if (!ensureGeolocationAvailable()) {
+    setGeo("⛔ Géolocalisation indisponible sur ce navigateur");
+    disableRequest(true);
     return;
   }
 
-  lockButton(true, "Envoi…");
+  setGeo("📍 Demande d'accès à votre position…");
 
+  const onOk = (pos) => {
+    const lat = pos.coords.latitude;
+    const lng = pos.coords.longitude;
+    const acc = pos.coords.accuracy;
+    const ts = pos.timestamp || Date.now();
+
+    STATE.clientPos = { lat, lng, acc, ts };
+    updateClientMarker(lat, lng);
+
+    setGeo(`✅ Position partagée (±${Math.round(acc)}m)`);
+
+    // Si on avait désactivé avant, on réactive uniquement si pas en attente
+    if (STATE.status === "idle" || STATE.status === "refused" || STATE.status === "expired" || STATE.status === "error") {
+      disableRequest(false);
+    }
+  };
+
+  const onErr = (err) => {
+    console.log("[geo] error", err);
+    setGeo("⛔ Position refusée : impossible d'afficher le livreur");
+    disableRequest(true);
+  };
+
+  // 1) Un premier point
+  navigator.geolocation.getCurrentPosition(onOk, onErr, {
+    enableHighAccuracy: true,
+    timeout: 15000,
+    maximumAge: 0,
+  });
+
+  // 2) Watch pour suivre le mouvement
   try {
-    await sendClientRequest(name);
-  } catch (e) {
-    const msg = String(e?.message || e);
-    alert(`Erreur: ${msg}`);
-  } finally {
-    lockButton(false, "Suivre ma commande");
+    STATE.watchId = navigator.geolocation.watchPosition(onOk, onErr, {
+      enableHighAccuracy: true,
+      maximumAge: 0,
+      timeout: 20000,
+    });
+  } catch {
+    // ignore
   }
 }
 
-// ============================
-// INIT
-// ============================
-(function init() {
-  // Remplit le champ prénom si déjà en LS
-  const saved = getSavedRequest();
-  if (elNameInput && saved.clientName && !elNameInput.value) {
-    elNameInput.value = saved.clientName;
+// ----------------------------
+// SESSION / STATE MACHINE
+// ----------------------------
+function loadSession() {
+  const requestId = lsGet(LS.requestId, "");
+  const clientId = lsGet(LS.clientId, "");
+  const name = lsGet(LS.name, "");
+
+  if (els.name && name) els.name.value = name;
+
+  if (requestId && clientId) {
+    STATE.requestId = requestId;
+    STATE.clientId = clientId;
+    STATE.status = "pending";
+    return true;
   }
+  return false;
+}
 
-  // géoloc
-  startWatchGeo();
+function saveSession({ requestId, clientId, name }) {
+  lsSet(LS.requestId, requestId);
+  lsSet(LS.clientId, clientId);
+  lsSet(LS.name, name);
+}
 
-  // click
-  if (elBtn) {
-    elBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      onClickRequest();
+function clearSession() {
+  lsDel(LS.requestId);
+  lsDel(LS.clientId);
+  // on garde le nom
+  STATE.requestId = "";
+  STATE.clientId = "";
+}
+
+function canRequestNow() {
+  const last = Number(lsGet(LS.lastRequestMs, "0")) || 0;
+  const cooldown = CONFIG.REQUEST_COOLDOWN_MS || 30000;
+  const delta = Date.now() - last;
+  return delta >= cooldown;
+}
+
+function setRequestedNow() {
+  lsSet(LS.lastRequestMs, String(Date.now()));
+}
+
+function stopAllLoops() {
+  stopTimer(STATE.tCountdown);
+  stopTimer(STATE.tPollDriver);
+  stopTimer(STATE.tSendClientPos);
+  stopTimeout(STATE.tPollStatus);
+  STATE.tCountdown = null;
+  STATE.tPollDriver = null;
+  STATE.tSendClientPos = null;
+  STATE.tPollStatus = null;
+}
+
+function resetFlow({ keepName = true } = {}) {
+  stopAllLoops();
+  clearSession();
+  STATE.status = "idle";
+  STATE.accessRemainingMs = null;
+
+  setBadge("Prêt : demande de suivi");
+  setState("—");
+  setCountdown("—");
+
+  disableRequest(!STATE.clientPos);
+  showReset(false);
+
+  if (!keepName && els.name) {
+    els.name.value = "";
+    lsDel(LS.name);
+  }
+}
+
+// ----------------------------
+// API Calls
+// ----------------------------
+async function sendClientPositionUpdate() {
+  if (!STATE.clientId || !STATE.clientPos) return;
+
+  const name = (els.name?.value || lsGet(LS.name, "") || "").trim().slice(0, 40);
+
+  try {
+    await apiFetchJson("/client/position/update", {
+      method: "POST",
+      body: {
+        clientId: STATE.clientId,
+        name,
+        lat: STATE.clientPos.lat,
+        lng: STATE.clientPos.lng,
+        ts: STATE.clientPos.ts || Date.now(),
+      },
     });
+  } catch (e) {
+    // silencieux (réseau)
+    console.log("[client_pos_update]", e?.message || e);
+  }
+}
+
+async function pollDriverPosition() {
+  if (!STATE.clientId) return;
+
+  try {
+    const data = await apiFetchJson("/client/driver-position", {
+      method: "GET",
+      params: { clientId: STATE.clientId },
+    });
+
+    // data.driver peut être null si le livreur n'a pas encore posté
+    if (data && data.driver && Number.isFinite(Number(data.driver.lat)) && Number.isFinite(Number(data.driver.lng))) {
+      updateDriverMarker(Number(data.driver.lat), Number(data.driver.lng));
+      fitIfBoth();
+    }
+
+    if (typeof data.remainingMs === "number") {
+      STATE.accessRemainingMs = data.remainingMs;
+    }
+  } catch (e) {
+    // accès coupé / expiré / pas de pos client
+    console.log("[driver_position]", e?.message || e);
+
+    STATE.status = "expired";
+    setBadge("Accès terminé");
+    setState("Accès terminé");
+    setCountdown("0:00");
+
+    disableRequest(false);
+    showReset(true);
+
+    stopTimer(STATE.tPollDriver);
+    stopTimer(STATE.tSendClientPos);
+    STATE.tPollDriver = null;
+    STATE.tSendClientPos = null;
+  }
+}
+
+async function pollStatus() {
+  if (!STATE.requestId) return;
+
+  try {
+    const data = await apiFetchJson("/client/status", {
+      method: "GET",
+      params: { requestId: STATE.requestId },
+    });
+
+    const status = String(data.status || "").toLowerCase();
+    STATE.status = status || "pending";
+
+    if (status === "pending") {
+      setBadge("Demande envoyée • en attente");
+      setState("En attente de décision");
+      setCountdown("—");
+
+      // re-planifie
+      STATE.tPollStatus = setTimeout(pollStatus, CONFIG.POLL_STATUS_MS || 3000);
+      return;
+    }
+
+    if (status === "refused") {
+      setBadge("Refusé");
+      setState("Refusé par le livreur");
+      setCountdown("—");
+
+      disableRequest(false);
+      showReset(true);
+      return;
+    }
+
+    if (status === "expired") {
+      setBadge("Expiré");
+      setState("Demande expirée");
+      setCountdown("—");
+
+      disableRequest(false);
+      showReset(true);
+      return;
+    }
+
+    if (status === "accepted") {
+      setBadge("Autorisé ✅");
+      setState("Suivi actif");
+
+      if (typeof data.remainingMs === "number") {
+        STATE.accessRemainingMs = data.remainingMs;
+      }
+
+      // stop polling status
+      stopTimeout(STATE.tPollStatus);
+      STATE.tPollStatus = null;
+
+      // Boucles accepted
+      startAcceptedLoops();
+      return;
+    }
+
+    // fallback
+    setBadge("Statut inconnu");
+    setState(status || "—");
+    STATE.tPollStatus = setTimeout(pollStatus, CONFIG.POLL_STATUS_MS || 3000);
+  } catch (e) {
+    console.log("[status]", e?.message || e);
+    setBadge("Erreur statut");
+    setState("Erreur réseau");
+
+    // On réessaie sans bloquer définitivement
+    STATE.tPollStatus = setTimeout(pollStatus, CONFIG.POLL_STATUS_MS || 3000);
+  }
+}
+
+function startAcceptedLoops() {
+  // Envoie position client régulièrement (condition obligatoire)
+  stopTimer(STATE.tSendClientPos);
+  STATE.tSendClientPos = setInterval(sendClientPositionUpdate, CONFIG.SEND_CLIENT_POS_MS || 8000);
+  // premier envoi immédiat
+  sendClientPositionUpdate();
+
+  // Poll driver position
+  stopTimer(STATE.tPollDriver);
+  STATE.tPollDriver = setInterval(pollDriverPosition, CONFIG.POLL_DRIVER_MS || 3000);
+  pollDriverPosition();
+
+  // Countdown UI
+  stopTimer(STATE.tCountdown);
+  STATE.tCountdown = setInterval(() => {
+    if (STATE.accessRemainingMs == null) {
+      setCountdown("—");
+      return;
+    }
+    STATE.accessRemainingMs = Math.max(0, STATE.accessRemainingMs - 1000);
+    setCountdown(fmtRemaining(STATE.accessRemainingMs));
+    if (STATE.accessRemainingMs <= 0) {
+      setBadge("Accès terminé");
+      setState("Accès terminé");
+      showReset(true);
+    }
+  }, 1000);
+}
+
+// ----------------------------
+// Actions
+// ----------------------------
+async function handleRequestClick() {
+  const name = (els.name?.value || "").trim().slice(0, 40);
+  if (!name) {
+    toast("Entre ton prénom.");
+    return;
   }
 
-  // Lance le polling
-  pollStatusLoop();
-})();
+  // Sauvegarde nom
+  lsSet(LS.name, name);
+
+  if (!STATE.clientPos) {
+    toast("Tu dois accepter de partager ta position pour voir le livreur.");
+    return;
+  }
+
+  if (!canRequestNow()) {
+    const last = Number(lsGet(LS.lastRequestMs, "0")) || 0;
+    const cooldown = CONFIG.REQUEST_COOLDOWN_MS || 30000;
+    const remain = Math.ceil((cooldown - (Date.now() - last)) / 1000);
+    toast(`Attends ${remain}s avant de redemander.`);
+    return;
+  }
+
+  try {
+    disableRequest(true);
+    showReset(false);
+    setBadge("Envoi de la demande…");
+    setState("Envoi en cours");
+    setCountdown("—");
+
+    const data = await apiFetchJson("/client/request", {
+      method: "POST",
+      body: {
+        name,
+        lat: STATE.clientPos.lat,
+        lng: STATE.clientPos.lng,
+        ts: STATE.clientPos.ts || Date.now(),
+      },
+    });
+
+    // Persist session
+    STATE.requestId = String(data.requestId || "");
+    STATE.clientId = String(data.clientId || "");
+    STATE.status = "pending";
+
+    if (!STATE.requestId || !STATE.clientId) {
+      throw new Error("missing_request_or_client_id");
+    }
+
+    saveSession({ requestId: STATE.requestId, clientId: STATE.clientId, name });
+    setRequestedNow();
+
+    setBadge("Demande envoyée • en attente");
+    setState("En attente de décision");
+
+    // Pendant pending: bouton bloqué
+    disableRequest(true);
+    showReset(false);
+
+    // On démarre le polling
+    stopTimeout(STATE.tPollStatus);
+    STATE.tPollStatus = setTimeout(pollStatus, 400);
+
+    toast("✅ Demande envoyée. Le livreur a reçu une notification.");
+  } catch (e) {
+    console.error(e);
+    setBadge("Erreur");
+    setState("Impossible d'envoyer la demande");
+    disableRequest(false);
+    showReset(true);
+    toast(`❌ Erreur: ${e?.message || e}`);
+  }
+}
+
+function handleResetClick() {
+  resetFlow({ keepName: true });
+}
+
+// ----------------------------
+// Boot
+// ----------------------------
+function boot() {
+  initMap();
+
+  // init UI
+  setBadge("Prêt : demande de suivi");
+  setState("—");
+  setCountdown("—");
+  setGeo("—");
+
+  if (els.btnRequest) els.btnRequest.addEventListener("click", handleRequestClick);
+  if (els.btnReset) els.btnReset.addEventListener("click", handleResetClick);
+
+  // Geo
+  startGeolocation();
+
+  // Restore session (si page rechargée en plein pending/accepted)
+  const hasSession = loadSession();
+  if (hasSession) {
+    setBadge("Reprise du suivi…");
+    setState("Reprise");
+    disableRequest(true);
+    showReset(false);
+
+    // Relance polling
+    stopTimeout(STATE.tPollStatus);
+    STATE.tPollStatus = setTimeout(pollStatus, 600);
+  } else {
+    disableRequest(!STATE.clientPos);
+    showReset(false);
+  }
+}
+
+document.addEventListener("DOMContentLoaded", boot);
+
+// clientName fix injected
