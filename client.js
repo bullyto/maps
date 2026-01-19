@@ -244,7 +244,6 @@ function startGeolocation() {
 
     setGeo(`✅ Position partagée (±${Math.round(acc)}m)`);
 
-    // Si on avait désactivé avant, on réactive uniquement si pas en attente
     if (STATE.status === "idle" || STATE.status === "refused" || STATE.status === "expired" || STATE.status === "error") {
       disableRequest(false);
     }
@@ -256,23 +255,19 @@ function startGeolocation() {
     disableRequest(true);
   };
 
-  // 1) Un premier point
   navigator.geolocation.getCurrentPosition(onOk, onErr, {
     enableHighAccuracy: true,
     timeout: 15000,
     maximumAge: 0,
   });
 
-  // 2) Watch pour suivre le mouvement
   try {
     STATE.watchId = navigator.geolocation.watchPosition(onOk, onErr, {
       enableHighAccuracy: true,
       maximumAge: 0,
       timeout: 20000,
     });
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 // ----------------------------
@@ -303,7 +298,6 @@ function saveSession({ requestId, clientId, name }) {
 function clearSession() {
   lsDel(LS.requestId);
   lsDel(LS.clientId);
-  // on garde le nom
   STATE.requestId = "";
   STATE.clientId = "";
 }
@@ -369,7 +363,6 @@ async function sendClientPositionUpdate() {
       },
     });
   } catch (e) {
-    // silencieux (réseau)
     console.log("[client_pos_update]", e?.message || e);
   }
 }
@@ -383,7 +376,6 @@ async function pollDriverPosition() {
       params: { clientId: STATE.clientId },
     });
 
-    // data.driver peut être null si le livreur n'a pas encore posté
     if (data && data.driver && Number.isFinite(Number(data.driver.lat)) && Number.isFinite(Number(data.driver.lng))) {
       updateDriverMarker(Number(data.driver.lat), Number(data.driver.lng));
       fitIfBoth();
@@ -393,7 +385,6 @@ async function pollDriverPosition() {
       STATE.accessRemainingMs = data.remainingMs;
     }
   } catch (e) {
-    // accès coupé / expiré / pas de pos client
     console.log("[driver_position]", e?.message || e);
 
     STATE.status = "expired";
@@ -420,7 +411,11 @@ async function pollStatus() {
       params: { requestId: STATE.requestId },
     });
 
-    const status = String(data.status || "").toLowerCase();
+    // ✅ Worker renvoie { request: {...}, access: {...} }
+    const req = data?.request || null;
+    const access = data?.access || null;
+
+    const status = String(req?.status || "").toLowerCase();
     STATE.status = status || "pending";
 
     if (status === "pending") {
@@ -428,7 +423,6 @@ async function pollStatus() {
       setState("En attente de décision");
       setCountdown("—");
 
-      // re-planifie
       STATE.tPollStatus = setTimeout(pollStatus, CONFIG.POLL_STATUS_MS || 3000);
       return;
     }
@@ -457,20 +451,17 @@ async function pollStatus() {
       setBadge("Autorisé ✅");
       setState("Suivi actif");
 
-      if (typeof data.remainingMs === "number") {
-        STATE.accessRemainingMs = data.remainingMs;
+      if (typeof access?.remainingMs === "number") {
+        STATE.accessRemainingMs = access.remainingMs;
       }
 
-      // stop polling status
       stopTimeout(STATE.tPollStatus);
       STATE.tPollStatus = null;
 
-      // Boucles accepted
       startAcceptedLoops();
       return;
     }
 
-    // fallback
     setBadge("Statut inconnu");
     setState(status || "—");
     STATE.tPollStatus = setTimeout(pollStatus, CONFIG.POLL_STATUS_MS || 3000);
@@ -478,25 +469,19 @@ async function pollStatus() {
     console.log("[status]", e?.message || e);
     setBadge("Erreur statut");
     setState("Erreur réseau");
-
-    // On réessaie sans bloquer définitivement
     STATE.tPollStatus = setTimeout(pollStatus, CONFIG.POLL_STATUS_MS || 3000);
   }
 }
 
 function startAcceptedLoops() {
-  // Envoie position client régulièrement (condition obligatoire)
   stopTimer(STATE.tSendClientPos);
   STATE.tSendClientPos = setInterval(sendClientPositionUpdate, CONFIG.SEND_CLIENT_POS_MS || 8000);
-  // premier envoi immédiat
   sendClientPositionUpdate();
 
-  // Poll driver position
   stopTimer(STATE.tPollDriver);
   STATE.tPollDriver = setInterval(pollDriverPosition, CONFIG.POLL_DRIVER_MS || 3000);
   pollDriverPosition();
 
-  // Countdown UI
   stopTimer(STATE.tCountdown);
   STATE.tCountdown = setInterval(() => {
     if (STATE.accessRemainingMs == null) {
@@ -523,7 +508,6 @@ async function handleRequestClick() {
     return;
   }
 
-  // Sauvegarde nom
   lsSet(LS.name, name);
 
   if (!STATE.clientPos) {
@@ -546,17 +530,17 @@ async function handleRequestClick() {
     setState("Envoi en cours");
     setCountdown("—");
 
+    // ✅ Worker attend clientName (pas name)
     const data = await apiFetchJson("/client/request", {
       method: "POST",
       body: {
-        name,
+        clientName: name,
         lat: STATE.clientPos.lat,
         lng: STATE.clientPos.lng,
         ts: STATE.clientPos.ts || Date.now(),
       },
     });
 
-    // Persist session
     STATE.requestId = String(data.requestId || "");
     STATE.clientId = String(data.clientId || "");
     STATE.status = "pending";
@@ -571,11 +555,9 @@ async function handleRequestClick() {
     setBadge("Demande envoyée • en attente");
     setState("En attente de décision");
 
-    // Pendant pending: bouton bloqué
     disableRequest(true);
     showReset(false);
 
-    // On démarre le polling
     stopTimeout(STATE.tPollStatus);
     STATE.tPollStatus = setTimeout(pollStatus, 400);
 
@@ -600,7 +582,6 @@ function handleResetClick() {
 function boot() {
   initMap();
 
-  // init UI
   setBadge("Prêt : demande de suivi");
   setState("—");
   setCountdown("—");
@@ -609,10 +590,8 @@ function boot() {
   if (els.btnRequest) els.btnRequest.addEventListener("click", handleRequestClick);
   if (els.btnReset) els.btnReset.addEventListener("click", handleResetClick);
 
-  // Geo
   startGeolocation();
 
-  // Restore session (si page rechargée en plein pending/accepted)
   const hasSession = loadSession();
   if (hasSession) {
     setBadge("Reprise du suivi…");
@@ -620,7 +599,6 @@ function boot() {
     disableRequest(true);
     showReset(false);
 
-    // Relance polling
     stopTimeout(STATE.tPollStatus);
     STATE.tPollStatus = setTimeout(pollStatus, 600);
   } else {
