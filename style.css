@@ -342,11 +342,16 @@ body.client .topBrandText{display:none;}
 
 /* Pop-up bas: plus petit + translucide */
 body.client .clientPopup{
-  position: absolute;
+  /*
+    MOBILE FIX:
+    - fixed keeps the popup stable when the browser UI (address bar) expands/collapses
+    - prevents the "flash then disappear" effect during Leaflet init on some devices
+  */
+  position: fixed;
   left: 12px;
   right: 12px;
-  bottom: 54px;
-  z-index: 30;
+  bottom: calc(env(safe-area-inset-bottom) + 64px);
+  z-index: 3000;
   pointer-events: none;
 }
 
@@ -374,7 +379,7 @@ body.client .clientBtnRow{display:grid; gap:10px; margin-top: 10px;}
 
 /* Barre légale fixée en bas */
 body.client .legalBar{
-  position: absolute;
+  position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
