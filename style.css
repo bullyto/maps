@@ -293,84 +293,89 @@ a{color:inherit;text-decoration:none}
    Objectif: pro / minimaliste / rassurant
    ============================= */
 
-body.client .wrap{max-width: 980px;}
+/* Layout full-screen: carte plein écran + pop-up minimal au-dessus */
+body.client{overflow: hidden;}
 
-body.client .clientMain{
-  margin-top: 14px;
-  display: grid;
-  gap: 14px;
+body.client .wrap{max-width: none; padding: 0; margin: 0;}
+
+body.client .clientShell{
+  position: relative;
+  height: 100svh;
+  width: 100%;
 }
 
-/* Carte mise en avant */
 body.client .clientMapWrap{
-  margin-top: 0;
+  position: absolute;
+  inset: 0;
+  padding: 86px 12px 54px;
 }
 
 body.client #map{
-  height: min(62vh, 560px);
-  min-height: 380px;
+  height: 100%;
+  width: 100%;
+  border-radius: 24px;
 }
 
-/* Panneau pro, compact */
-body.client .clientPanel{
-  padding: 14px;
-}
-
-body.client .clientPanelTop{
+/* Bandeau haut compact (logo + chrono + statut) */
+body.client .clientTopbar{
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 20;
   display: grid;
-  gap: 12px;
-}
-
-@media(min-width:760px){
-  body.client .clientPanelTop{
-    grid-template-columns: 1.2fr .8fr;
-    align-items: start;
-  }
-}
-
-body.client .clientChips{
-  display: flex;
+  grid-template-columns: auto 1fr auto;
   gap: 10px;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-}
-
-body.client .chip{
-  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: 999px;
-  border:1px solid rgba(255,255,255,.12);
-  background: rgba(0,0,0,.14);
-  font-weight: 900;
-  font-size: 13px;
-  line-height: 1;
 }
 
-body.client .chipI{opacity:.9}
+body.client .topPill{margin:0;}
 
-body.client .clientForm{margin-top: 12px;}
-
-body.client .clientBtnRow{
-  display: grid;
-  gap: 10px;
-  margin-top: 10px;
+body.client .topBrandLogo{
+  height: 34px;
+  width: auto;
+  display: block;
+  object-fit: contain;
 }
 
-@media(min-width:760px){
-  body.client .clientBtnRow{
-    grid-template-columns: 1fr 1fr;
-  }
+body.client .topBrandText{display:none;}
+
+/* Pop-up bas: plus petit + translucide */
+body.client .clientPopup{
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 54px;
+  z-index: 30;
+  pointer-events: none;
 }
 
-body.client .clientHint{
-  margin-top: 10px;
-  padding: 12px;
-  border-radius: 16px;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(0,0,0,.12);
-  opacity: .92;
-  font-size: 13px;
-  line-height: 1.35;
+body.client .clientPopupCard{
+  width: min(420px, 100%);
+  margin: 0 auto;
+  border-radius: 22px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: linear-gradient(180deg, rgba(12,26,40,.72), rgba(10,20,30,.62));
+  box-shadow: 0 20px 70px rgba(0,0,0,.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: 14px;
+  pointer-events: auto;
+}
+
+body.client .clientPopupTitle{font-size: 22px; margin:0 0 4px;}
+body.client .clientPopupSub{margin:0 0 10px; opacity:.9; font-size:13px; line-height:1.3}
+
+body.client .clientChips{display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin: 10px 0 0;}
+body.client .chip{font-size: 13px; padding: 10px 12px;}
+
+body.client .clientForm{margin-top: 10px;}
+body.client .clientBtnRow{display:grid; gap:10px; margin-top: 10px;}
+
+/* Barre légale fixée en bas */
+body.client .legalBar{
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
 }
