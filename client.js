@@ -147,17 +147,7 @@ async function apiFetchJson(path, { method = "GET", params = {}, body = null } =
     init.body = JSON.stringify(body);
   }
 
-  const resp = await const nameInput = document.querySelector("#clientName");
-const clientName = nameInput?.value?.trim();
-if (!clientName) {
-  alert("Veuillez entrer votre prénom");
-  return;
-}
-await fetch(CONFIG.API_BASE + "/client/request?key=" + CONFIG.CLIENT_KEY, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ clientName })
-});
+  const resp = await fetch(url, init);
   let data = null;
   try {
     data = await resp.json();
@@ -640,5 +630,3 @@ function boot() {
 }
 
 document.addEventListener("DOMContentLoaded", boot);
-
-// clientName fix injected
