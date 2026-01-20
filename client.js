@@ -1,3 +1,4 @@
+// PATH: maps/client.js
 // /maps/client.js
 import { CONFIG } from "./config.js";
 
@@ -48,6 +49,18 @@ const STATE = {
   tSendClientPos: null,
   tCountdown: null,
   accessRemainingMs: null,
+
+  // ✅ smoothing driver marker
+  driverAnimRaf: 0,
+  driverAnimFrom: null, // {lat,lng}
+  driverAnimTo: null,   // {lat,lng}
+  driverAnimStart: 0,
+  driverAnimDur: 2500, // ms (doit être < poll interval, ex 3000)
+  driverLastUpdateMs: 0,
+  driverHasFirstFix: false,
+
+  // ✅ fit throttle
+  lastFitMs: 0,
 };
 
 // ----------------------------
@@ -80,15 +93,9 @@ function setPopupVisible(visible) {
 }
 
 function updatePopupVisibility() {
-  // RÈGLE UX:
-  // - La popup DOIT disparaître dès que l'accès est "accepté" (chrono en cours)
-  //   même si le backend n'a pas encore renvoyé remainingMs.
-  // - Elle DOIT réapparaître quand le temps arrive à 0 (accès terminé).
-
   const isAccepted = STATE.status === "accepted";
   const remaining = STATE.accessRemainingMs;
   const hasActiveAccess = isAccepted && (remaining == null || remaining > 0);
-
   setPopupVisible(!hasActiveAccess);
 }
 
@@ -229,17 +236,83 @@ function updateClientMarker(lat, lng) {
   STATE.markerClient.setLatLng([lat, lng]);
 }
 
-function updateDriverMarker(lat, lng) {
+function setDriverMarkerImmediate(lat, lng) {
   if (!STATE.markerDriver) return;
   STATE.markerDriver.setLatLng([lat, lng]);
 }
 
-function fitIfBoth() {
+function fitIfBothThrottled(force = false) {
   if (!STATE.map || !STATE.markerClient || !STATE.markerDriver) return;
+
+  const now = Date.now();
+  const throttleMs = 12000; // ✅ pas tout le temps
+  if (!force && now - STATE.lastFitMs < throttleMs) return;
+  STATE.lastFitMs = now;
+
   const a = STATE.markerClient.getLatLng();
   const b = STATE.markerDriver.getLatLng();
   const bounds = L.latLngBounds([a, b]);
   STATE.map.fitBounds(bounds.pad(0.25));
+}
+
+// ----------------------------
+// ✅ DRIVER SMOOTHING (interpolation)
+// ----------------------------
+function cancelDriverAnim() {
+  if (STATE.driverAnimRaf) {
+    cancelAnimationFrame(STATE.driverAnimRaf);
+    STATE.driverAnimRaf = 0;
+  }
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+// easing simple (smooth)
+function easeInOut(t) {
+  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+}
+
+function startDriverAnim(toLat, toLng) {
+  if (!STATE.markerDriver) return;
+
+  const now = performance.now();
+  const current = STATE.markerDriver.getLatLng();
+
+  // Première fix : direct
+  if (!STATE.driverHasFirstFix) {
+    STATE.driverHasFirstFix = true;
+    setDriverMarkerImmediate(toLat, toLng);
+    STATE.driverLastUpdateMs = Date.now();
+    fitIfBothThrottled(true);
+    return;
+  }
+
+  STATE.driverAnimFrom = { lat: current.lat, lng: current.lng };
+  STATE.driverAnimTo = { lat: toLat, lng: toLng };
+  STATE.driverAnimStart = now;
+
+  cancelDriverAnim();
+
+  const tick = () => {
+    const t = (performance.now() - STATE.driverAnimStart) / STATE.driverAnimDur;
+    const clamped = Math.max(0, Math.min(1, t));
+    const e = easeInOut(clamped);
+
+    const lat = lerp(STATE.driverAnimFrom.lat, STATE.driverAnimTo.lat, e);
+    const lng = lerp(STATE.driverAnimFrom.lng, STATE.driverAnimTo.lng, e);
+    setDriverMarkerImmediate(lat, lng);
+
+    if (clamped < 1) {
+      STATE.driverAnimRaf = requestAnimationFrame(tick);
+    } else {
+      STATE.driverAnimRaf = 0;
+      STATE.driverLastUpdateMs = Date.now();
+    }
+  };
+
+  STATE.driverAnimRaf = requestAnimationFrame(tick);
 }
 
 // ----------------------------
@@ -347,6 +420,7 @@ function stopAllLoops() {
   STATE.tPollDriver = null;
   STATE.tSendClientPos = null;
   STATE.tPollStatus = null;
+  cancelDriverAnim();
 }
 
 function resetFlow({ keepName = true } = {}) {
@@ -402,8 +476,14 @@ async function pollDriverPosition() {
     });
 
     if (data && data.driver && Number.isFinite(Number(data.driver.lat)) && Number.isFinite(Number(data.driver.lng))) {
-      updateDriverMarker(Number(data.driver.lat), Number(data.driver.lng));
-      fitIfBoth();
+      const lat = Number(data.driver.lat);
+      const lng = Number(data.driver.lng);
+
+      // ✅ smooth marker
+      startDriverAnim(lat, lng);
+
+      // ✅ fit throttle (pas à chaque fois)
+      fitIfBothThrottled(false);
     }
 
     if (typeof data.remainingMs === "number") {
@@ -411,11 +491,7 @@ async function pollDriverPosition() {
     }
   } catch (e) {
     console.log("[driver_position]", e?.message || e);
-
-    // ✅ CORRECTION:
-    // NE PAS terminer l'accès sur une erreur de position.
-    // Le livreur peut ne pas avoir encore envoyé son GPS (ou réseau instable).
-    // On réessaiera au prochain poll.
+    // Ne pas terminer l'accès sur une erreur de position.
   }
 }
 
@@ -428,7 +504,6 @@ async function pollStatus() {
       params: { requestId: STATE.requestId },
     });
 
-    // ✅ Worker renvoie { request: {...}, access: {...} }
     const req = data?.request || null;
     const access = data?.access || null;
 
@@ -508,14 +583,12 @@ function startAcceptedLoops() {
     STATE.accessRemainingMs = Math.max(0, STATE.accessRemainingMs - 1000);
     setCountdown(fmtRemaining(STATE.accessRemainingMs));
     if (STATE.accessRemainingMs <= 0) {
-      // Fin d'accès -> la popup doit réapparaître
       STATE.status = "expired";
 
       setBadge("Accès terminé");
       setState("Accès terminé");
       setCountdown("0:00");
 
-      // Stop des boucles "suivi actif"
       stopTimer(STATE.tSendClientPos);
       STATE.tSendClientPos = null;
       stopTimer(STATE.tPollDriver);
@@ -561,7 +634,6 @@ async function handleRequestClick() {
     setState("Envoi en cours");
     setCountdown("—");
 
-    // ✅ Worker attend clientName (pas name)
     const data = await apiFetchJson("/client/request", {
       method: "POST",
       body: {
