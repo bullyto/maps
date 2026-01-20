@@ -1,36 +1,565 @@
-<!-- Exemple de structure HTML attendue (si tu as déjà une .clientPopup, garde-la mais mets ce markup) -->
-<div class="clientPopup" id="popup">
-  <div class="clientPopupCard">
-    <div class="clientPopupHeader">
-      <div class="clientPopupBrand">
-        <img class="clientPopupLogo" src="logo.png" alt="logo">
-        <div class="clientPopupBrandText">
-          <h3 class="clientPopupTitle">Suivi livraison</h3>
-          <p class="clientPopupSub">Entrez votre prénom pour demander le suivi</p>
-        </div>
-      </div>
-      <button class="clientPopupClose" type="button" aria-label="Fermer">✕</button>
-    </div>
+:root{
+  --bg:#0b1c2d;
+  --cyan:#4da3d9;
+  --white:#fff;
+  --glass: rgba(255,255,255,.06);
+  --glass2: rgba(255,255,255,.10);
+  --stroke: rgba(255,255,255,.10);
+  --shadow: 0 18px 60px rgba(0,0,0,.35);
+  --radius: 18px;
+}
 
-    <div class="clientPopupBody">
-      <div class="clientChips">
-        <span class="chip"><span class="dot"></span> Live</span>
-        <span class="chip">Sécurisé</span>
-        <span class="chip">Confidentiel</span>
-      </div>
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background:
+    radial-gradient(900px 500px at 20% 10%, rgba(77,163,217,.18), transparent 55%),
+    radial-gradient(800px 450px at 80% 20%, rgba(77,163,217,.10), transparent 60%),
+    radial-gradient(900px 700px at 50% 110%, rgba(0,0,0,.45), transparent 60%),
+    var(--bg);
+  color: var(--white);
+  overflow-x:hidden;
+}
 
-      <div class="clientForm">
-        <div class="clientLabel">Votre prénom</div>
-        <input class="clientInput" placeholder="Ex: Alex">
-        <div class="clientBtnRow">
-          <button class="clientBtn" type="button">Demander le suivi</button>
-          <button class="clientBtn secondary" type="button">Annuler</button>
-        </div>
-      </div>
+a{color:inherit;text-decoration:none}
+.wrap{
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 18px 14px 90px;
+}
 
-      <div class="clientNotice">
-        Votre position sert uniquement à afficher le livreur pendant la livraison. Aucun identifiant technique n’est affiché.
-      </div>
-    </div>
-  </div>
-</div>
+.topbar{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;
+  padding: 14px 14px;
+  border:1px solid var(--stroke);
+  background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+  border-radius: 22px;
+  box-shadow: var(--shadow);
+}
+
+/* =========================
+   CLIENT (design minimal)
+   ========================= */
+
+.clientTopbar{padding: 12px 12px;}
+.clientTopRow{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;}
+
+.pill{
+  display:flex;align-items:center;gap:10px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03));
+  box-shadow: 0 14px 40px rgba(0,0,0,.28);
+}
+.pill.compact{padding: 10px 12px;}
+
+.pillBrand{gap:10px; min-width: 0;}
+.brandLogo{height: 28px; width: 28px; border-radius: 10px; display:block;}
+.brandStack{display:flex;flex-direction:column;min-width:0;line-height:1.05;}
+.brandTitle{font-weight:900;font-size:12px;letter-spacing:.2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.brandSub{font-size:11px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+.pillTimer{min-width: 96px; justify-content:center; font-weight:900;}
+.pillTimer .ico{font-size:16px;opacity:.95;}
+
+.pillState{min-width: 150px; justify-content:center; font-weight:900;}
+.pillState .dot{animation:none; box-shadow:none;}
+
+.clientMain{margin-top: 12px;}
+.clientMapWrap{position:relative;}
+.clientMap{
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: calc(100vh - 170px);
+  min-height: 360px;
+  border-radius: 22px;
+  overflow:hidden;
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow);
+}
+
+/* =========================================================
+   POPUP CLIENT — CENTRÉE ÉCRAN (viewport) + DESIGN PRO
+   (compatible avec ta page client.html)
+   ========================================================= */
+
+/* Overlay plein écran (c'est ça qui centre par rapport à l'ÉCRAN) */
+.clientPopup{
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: calc(env(safe-area-inset-top) + 18px) 16px calc(env(safe-area-inset-bottom) + 22px);
+  background: rgba(0,0,0,.48);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .16s ease;
+}
+
+/* Visible */
+.clientPopup.isVisible{
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Carte pro */
+.clientPopupCard{
+  width: min(520px, 92vw);
+  max-width: 92vw;
+  border-radius: 22px;
+  border: 1px solid rgba(255,255,255,.16);
+
+  background:
+    radial-gradient(900px 520px at 18% -18%, rgba(77,163,217,.22), transparent 56%),
+    radial-gradient(900px 520px at 110% 30%, rgba(255,255,255,.08), transparent 55%),
+    linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.05));
+
+  box-shadow: 0 30px 100px rgba(0,0,0,.62);
+  overflow: hidden;
+
+  transform: translateY(10px) scale(.985);
+  transition: transform .18s ease;
+}
+.clientPopup.isVisible .clientPopupCard{
+  transform: translateY(0) scale(1);
+}
+
+/* Header (pro, rassurant) */
+.clientPopupHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.18);
+}
+
+/* Bloc marque */
+.clientPopupBrand{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+}
+.clientPopupLogo{
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  display:block;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06);
+  box-shadow: 0 12px 30px rgba(0,0,0,.35);
+}
+.clientPopupBrandText{
+  display:flex;
+  flex-direction:column;
+  line-height:1.08;
+  min-width:0;
+}
+.clientPopupTitle{
+  font-size: 18px;
+  font-weight: 950;
+  margin:0;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.clientPopupSub{
+  margin:2px 0 0;
+  opacity:.88;
+  font-size: 13px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+/* Bouton close (optionnel) */
+.clientPopupClose{
+  appearance:none;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06);
+  color: var(--white);
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-weight: 950;
+  cursor:pointer;
+}
+.clientPopupClose:active{transform: scale(.99)}
+
+/* Body */
+.clientPopupBody{
+  padding: 14px;
+  display:grid;
+  gap: 12px;
+}
+
+/* Chips (petits labels pro) */
+.clientChips{
+  display:flex;
+  gap:10px;
+  justify-content:center;
+  flex-wrap:wrap;
+  margin: 0;
+}
+.chip{
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(0,0,0,.18);
+  font-size: 12.5px;
+  font-weight: 900;
+}
+.chip .dot{
+  width: 9px;
+  height: 9px;
+  border-radius: 99px;
+  background: var(--cyan);
+  box-shadow: 0 0 0 0 rgba(77,163,217,.55);
+  animation: pulse 1.4s infinite;
+}
+
+/* Form pro */
+.clientForm{
+  display:grid;
+  gap: 10px;
+}
+.clientLabel{
+  font-size: 12px;
+  opacity: .85;
+  font-weight: 900;
+}
+.clientInput{
+  width: 100%;
+  padding: 12px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(0,0,0,.22);
+  color: var(--white);
+  outline: none;
+  font-size: 16px;
+}
+.clientInput::placeholder{color: rgba(255,255,255,.55)}
+.clientInput:focus{
+  border-color: rgba(77,163,217,.45);
+  box-shadow: 0 0 0 4px rgba(77,163,217,.14);
+}
+
+/* Boutons */
+.clientBtnRow{
+  display:grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+.clientBtn{
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(77,163,217,.45);
+  background: linear-gradient(180deg, rgba(77,163,217,.32), rgba(77,163,217,.18));
+  color: var(--white);
+  font-weight: 950;
+  font-size: 15.5px;
+  letter-spacing: .2px;
+  cursor:pointer;
+  transition: transform .08s ease, filter .08s ease;
+}
+.clientBtn:active{transform: scale(.99)}
+.clientBtn[disabled]{opacity:.55; cursor:not-allowed; filter: grayscale(.2)}
+.clientBtn.secondary{
+  border-color: rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06);
+}
+
+/* Notice pro */
+.clientNotice{
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px dashed rgba(255,255,255,.18);
+  background: rgba(255,255,255,.06);
+  opacity: .95;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+/* Responsive */
+@media (max-width: 420px){
+  .clientPopupCard{ width: min(380px, 92vw); border-radius: 20px; }
+  .clientPopupHeader{ padding: 12px 12px 10px; }
+  .clientPopupBody{ padding: 12px; gap: 10px; }
+  .clientPopupTitle{ font-size: 17px; }
+}
+@media (max-width: 420px){
+  .clientPopup{ padding: calc(env(safe-area-inset-top) + 14px) 14px calc(env(safe-area-inset-bottom) + 18px); }
+}
+
+/* =========================
+   Rest of your existing CSS
+   ========================= */
+
+.popupTitle{font-size: 18px; font-weight: 950; margin:0 0 6px;}
+.popupHint{margin:0 0 10px; opacity:.88; line-height:1.35; font-size: 13px;}
+
+.popupForm{display:grid; gap:10px;}
+.popupForm .label{font-size: 12px; opacity:.85; font-weight:800;}
+
+.popupRow{
+  display:flex; align-items:center; gap:10px;
+  padding: 9px 10px;
+  border-radius: 14px;
+  border: 1px dashed rgba(255,255,255,.18);
+  background: rgba(255,255,255,.04);
+  font-weight: 800;
+}
+
+.popupFooter{
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.10);
+  background: rgba(255,255,255,.04);
+  font-size: 13px;
+  opacity: .9;
+}
+
+.brand{
+  display:flex;align-items:center;gap:12px;min-width:0;
+}
+.brand img{
+  height: 34px; width:auto; display:block;
+  filter: drop-shadow(0 8px 20px rgba(0,0,0,.35));
+}
+.badge{
+  margin-left:auto;
+  display:inline-flex;align-items:center;gap:8px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border:1px solid rgba(77,163,217,.35);
+  background: rgba(77,163,217,.12);
+  font-weight:700;
+  font-size: 13px;
+  white-space:nowrap;
+}
+.dot{
+  width:9px;height:9px;border-radius:99px;background:var(--cyan);
+  box-shadow: 0 0 0 0 rgba(77,163,217,.55);
+  animation: pulse 1.4s infinite;
+}
+@keyframes pulse{
+  0%{box-shadow:0 0 0 0 rgba(77,163,217,.55)}
+  70%{box-shadow:0 0 0 10px rgba(77,163,217,0)}
+  100%{box-shadow:0 0 0 0 rgba(77,163,217,0)}
+}
+
+.card{
+  margin-top:14px;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--stroke);
+  background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.03));
+  box-shadow: var(--shadow);
+}
+
+.h1{font-size: 22px; font-weight: 900; margin:0 0 6px}
+.p{opacity:.9; line-height:1.45; margin:0}
+
+.grid2{display:grid;grid-template-columns: 1fr; gap:12px}
+@media(min-width:760px){ .grid2{grid-template-columns: 1.1fr .9fr;} }
+
+.input{
+  width:100%;
+  padding: 14px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(0,0,0,.18);
+  color: var(--white);
+  outline:none;
+  font-size: 15px;
+}
+.input::placeholder{color: rgba(255,255,255,.55)}
+
+.btn{
+  width:100%;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(77,163,217,.45);
+  background: linear-gradient(180deg, rgba(77,163,217,.30), rgba(77,163,217,.18));
+  color: var(--white);
+  font-weight: 900;
+  font-size: 16px;
+  letter-spacing: .2px;
+  cursor:pointer;
+  transition: transform .08s ease, filter .08s ease;
+}
+.btn:active{transform: scale(.99)}
+.btn[disabled]{opacity:.55; cursor:not-allowed; filter: grayscale(.2)}
+.btn.secondary{
+  border-color: rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06);
+}
+
+.kpiRow{display:flex;gap:10px;flex-wrap:wrap}
+.kpi{
+  flex:1;
+  min-width: 150px;
+  padding: 12px;
+  border-radius: 16px;
+  border:1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.14);
+}
+.kpi .t{opacity:.75;font-size:12px;font-weight:700}
+.kpi .v{font-size:18px;font-weight:900;margin-top:4px}
+
+.mapWrap{
+  margin-top: 12px;
+  border-radius: 22px;
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow: var(--shadow);
+}
+#map{height: 360px;}
+@media(min-width:760px){ #map{height: 420px;} }
+
+.list{
+  display:grid; gap:10px;
+}
+.item{
+  padding: 12px;
+  border-radius: 16px;
+  border:1px solid rgba(255,255,255,.10);
+  background: rgba(0,0,0,.14);
+}
+.itemTop{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.itemName{font-weight:900}
+.itemMeta{opacity:.75;font-size:13px;margin-top:4px}
+.actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.smallBtn{
+  padding:10px 12px;
+  border-radius: 14px;
+  border:1px solid rgba(255,255,255,.14);
+  background: rgba(255,255,255,.06);
+  color: var(--white);
+  font-weight:900;
+  cursor:pointer;
+}
+.smallBtn.good{border-color: rgba(80,220,140,.35); background: rgba(80,220,140,.14)}
+.smallBtn.bad{border-color: rgba(255,90,90,.35); background: rgba(255,90,90,.14)}
+.smallBtn.cyan{border-color: rgba(77,163,217,.45); background: rgba(77,163,217,.16)}
+.smallBtn[disabled]{opacity:.55; cursor:not-allowed}
+
+.notice{
+  margin-top:10px;
+  padding: 12px;
+  border-radius: 16px;
+  border:1px dashed rgba(77,163,217,.35);
+  background: rgba(77,163,217,.08);
+  opacity:.95;
+}
+
+.legal{
+  position:fixed;left:0;right:0;bottom:0;
+  padding: 10px 12px;
+  background: rgba(0,0,0,.78);
+  color: rgba(255,255,255,.9);
+  font-size: 12.5px;
+  text-align:center;
+  z-index: 9999;
+}
+
+.overlay{
+  position:fixed;inset:0;
+  background: rgba(0,0,0,.65);
+  display:flex;align-items:center;justify-content:center;
+  padding: 18px;
+  z-index: 9998;
+}
+.modal{
+  width: min(520px, 100%);
+  border-radius: 22px;
+  border:1px solid rgba(255,255,255,.12);
+  background: linear-gradient(180deg, rgba(11,28,45,.92), rgba(11,28,45,.82));
+  box-shadow: 0 30px 90px rgba(0,0,0,.55);
+  padding: 16px;
+}
+.modal h2{margin:0 0 6px;font-size:20px}
+.modal p{margin:0 0 12px; opacity:.9}
+
+.btnSmall{padding:10px 12px;font-size:14px;border-radius:14px}
+.btnDanger{border-color:rgba(255,90,90,.35);background:rgba(255,90,90,.10)}
+.btnDanger:disabled{opacity:.45}
+
+.btnRow{display:flex;gap:10px;align-items:center;justify-content:flex-start;flex-wrap:wrap}
+
+/* =============================
+   CLIENT (page client.html)
+   Objectif: pro / minimaliste / rassurant
+   ============================= */
+
+body.client{overflow: hidden;}
+
+body.client .wrap{max-width: none; padding: 0; margin: 0;}
+
+body.client .clientShell{
+  position: relative;
+  height: 100svh;
+  width: 100%;
+}
+
+body.client .clientMapWrap{
+  position: absolute;
+  inset: 0;
+  padding: 86px 12px 54px;
+}
+
+body.client #map{
+  height: 100%;
+  width: 100%;
+  border-radius: 24px;
+}
+
+/* Bandeau haut compact (logo + chrono + statut) */
+body.client .clientTopbar{
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+body.client .topPill{margin:0;}
+
+body.client .topBrandLogo{
+  height: 34px;
+  width: auto;
+  display: block;
+  object-fit: contain;
+}
+
+body.client .topBrandText{display:none;}
+
+/* Barre légale fixée en bas */
+body.client .legalBar{
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
