@@ -50,17 +50,42 @@ const STATE = {
   tCountdown: null,
   accessRemainingMs: null,
 
-  // ✅ smoothing driver marker
-  driverAnimRaf: 0,
-  driverAnimFrom: null, // {lat,lng}
-  driverAnimTo: null,   // {lat,lng}
-  driverAnimStart: 0,
-  driverAnimDur: 2500, // ms (doit être < poll interval, ex 3000)
-  driverLastUpdateMs: 0,
-  driverHasFirstFix: false,
-
   // ✅ fit throttle
   lastFitMs: 0,
+
+  // ✅ driver smoothing engine (Waze-like)
+  driver: {
+    // buffer of server points: {lat,lng,tsServerMs, rxMs}
+    buf: [],
+    maxBuf: 12,
+
+    // adaptive delay (ms)
+    delayMs: 2000,
+    delayMin: 2000,
+    delayMax: 2600,
+
+    // last server rx intervals (ms)
+    rxIntervals: [],
+    rxIntervalsMax: 8,
+    lastRxMs: 0,
+
+    // display state (lat/lng displayed now)
+    disp: null, // {lat,lng}
+    lastDispMs: 0,
+
+    // prediction state
+    vel: null, // {vLat,vLng} per ms (approx)
+    lastVelFrom: null, // {lat,lng,tsMs}
+
+    // animation loop
+    raf: 0,
+
+    // guard
+    hasFirstFix: false,
+
+    // max speed clamp (deg/ms converted later), we clamp in meters approx
+    maxSpeedMps: 45, // 162 km/h (safe clamp)
+  },
 };
 
 // ----------------------------
@@ -256,63 +281,222 @@ function fitIfBothThrottled(force = false) {
 }
 
 // ----------------------------
-// ✅ DRIVER SMOOTHING (interpolation)
+// ✅ DRIVER SMOOTHING ENGINE (Waze-like)
 // ----------------------------
-function cancelDriverAnim() {
-  if (STATE.driverAnimRaf) {
-    cancelAnimationFrame(STATE.driverAnimRaf);
-    STATE.driverAnimRaf = 0;
-  }
+function clamp(n, a, b) {
+  return Math.max(a, Math.min(b, n));
 }
 
 function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
-// easing simple (smooth)
-function easeInOut(t) {
-  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+function ease(t) {
+  // smoothstep
+  return t * t * (3 - 2 * t);
 }
 
-function startDriverAnim(toLat, toLng) {
-  if (!STATE.markerDriver) return;
+// approx meters between two lat/lng (fast enough)
+function approxMeters(aLat, aLng, bLat, bLng) {
+  const R = 6371000;
+  const toRad = (x) => (x * Math.PI) / 180;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const lat1 = toRad(aLat);
+  const lat2 = toRad(bLat);
+  const x =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+  return R * c;
+}
 
-  const now = performance.now();
-  const current = STATE.markerDriver.getLatLng();
+function driverAddPoint(lat, lng, tsServerMs) {
+  const d = STATE.driver;
+  const rxMs = Date.now();
 
-  // Première fix : direct
-  if (!STATE.driverHasFirstFix) {
-    STATE.driverHasFirstFix = true;
-    setDriverMarkerImmediate(toLat, toLng);
-    STATE.driverLastUpdateMs = Date.now();
-    fitIfBothThrottled(true);
-    return;
+  // compute rx interval
+  if (d.lastRxMs) {
+    const dt = rxMs - d.lastRxMs;
+    if (dt > 0 && dt < 30000) {
+      d.rxIntervals.push(dt);
+      if (d.rxIntervals.length > d.rxIntervalsMax) d.rxIntervals.shift();
+    }
+  }
+  d.lastRxMs = rxMs;
+
+  // adaptive delay: based on avg rx interval
+  if (d.rxIntervals.length >= 3) {
+    const avg = d.rxIntervals.reduce((s, v) => s + v, 0) / d.rxIntervals.length;
+    // base = 0.7 * avg, clamped to [2.0s, 2.6s]
+    const target = clamp(Math.round(avg * 0.7), d.delayMin, d.delayMax);
+    // smooth change (avoid jitter)
+    d.delayMs = Math.round(d.delayMs * 0.8 + target * 0.2);
   }
 
-  STATE.driverAnimFrom = { lat: current.lat, lng: current.lng };
-  STATE.driverAnimTo = { lat: toLat, lng: toLng };
-  STATE.driverAnimStart = now;
+  // de-dup / sanity
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-  cancelDriverAnim();
+  const last = d.buf.length ? d.buf[d.buf.length - 1] : null;
+  if (last) {
+    const dist = approxMeters(last.lat, last.lng, lat, lng);
+    // ignore absurd jumps unless time is huge
+    const dt = Math.max(1, tsServerMs - last.tsServerMs);
+    const speed = dist / (dt / 1000); // m/s
+    if (speed > d.maxSpeedMps * 2) {
+      // too crazy -> ignore this sample
+      return;
+    }
+    // update velocity estimate (per ms)
+    const vLat = (lat - last.lat) / dt;
+    const vLng = (lng - last.lng) / dt;
+    d.vel = { vLat, vLng };
+    d.lastVelFrom = { lat, lng, tsMs: tsServerMs };
+  }
+
+  d.buf.push({ lat, lng, tsServerMs, rxMs });
+  if (d.buf.length > d.maxBuf) d.buf.shift();
+
+  // if first fix, set immediately and fit once
+  if (!d.hasFirstFix) {
+    d.hasFirstFix = true;
+    d.disp = { lat, lng };
+    d.lastDispMs = Date.now();
+    setDriverMarkerImmediate(lat, lng);
+    fitIfBothThrottled(true);
+  }
+}
+
+function driverPruneBuffer(nowServerMs) {
+  const d = STATE.driver;
+  // Keep points around the render time window
+  const keepAfter = nowServerMs - 20000; // keep last 20s
+  while (d.buf.length && d.buf[0].tsServerMs < keepAfter) d.buf.shift();
+}
+
+function driverSampleAtTime(renderServerMs) {
+  const d = STATE.driver;
+  const buf = d.buf;
+
+  if (buf.length === 0) return null;
+  if (buf.length === 1) return { lat: buf[0].lat, lng: buf[0].lng, mode: "single" };
+
+  // find segment [i, i+1] that contains render time
+  let i = -1;
+  for (let k = 0; k < buf.length - 1; k++) {
+    if (buf[k].tsServerMs <= renderServerMs && renderServerMs <= buf[k + 1].tsServerMs) {
+      i = k;
+      break;
+    }
+  }
+
+  if (i >= 0) {
+    const a = buf[i];
+    const b = buf[i + 1];
+    const dt = b.tsServerMs - a.tsServerMs;
+    const t = dt <= 0 ? 1 : (renderServerMs - a.tsServerMs) / dt;
+    const tt = ease(clamp(t, 0, 1));
+    return {
+      lat: lerp(a.lat, b.lat, tt),
+      lng: lerp(a.lng, b.lng, tt),
+      mode: "interp",
+    };
+  }
+
+  // render time is AFTER last point => predict softly
+  const last = buf[buf.length - 1];
+  const age = renderServerMs - last.tsServerMs;
+
+  // If very old, just stick to last
+  if (age > 12000) {
+    return { lat: last.lat, lng: last.lng, mode: "stale" };
+  }
+
+  // prediction using last velocity
+  if (d.vel) {
+    const predLat = last.lat + d.vel.vLat * age;
+    const predLng = last.lng + d.vel.vLng * age;
+
+    // speed clamp
+    const dist = approxMeters(last.lat, last.lng, predLat, predLng);
+    const speed = dist / Math.max(0.001, age / 1000);
+    if (speed > d.maxSpeedMps) {
+      // clamp: reduce prediction
+      const ratio = d.maxSpeedMps / speed;
+      return {
+        lat: last.lat + (predLat - last.lat) * ratio,
+        lng: last.lng + (predLng - last.lng) * ratio,
+        mode: "pred_clamped",
+      };
+    }
+
+    return { lat: predLat, lng: predLng, mode: "pred" };
+  }
+
+  return { lat: last.lat, lng: last.lng, mode: "last" };
+}
+
+function driverStartLoop() {
+  const d = STATE.driver;
+  if (d.raf) return;
 
   const tick = () => {
-    const t = (performance.now() - STATE.driverAnimStart) / STATE.driverAnimDur;
-    const clamped = Math.max(0, Math.min(1, t));
-    const e = easeInOut(clamped);
+    d.raf = requestAnimationFrame(tick);
 
-    const lat = lerp(STATE.driverAnimFrom.lat, STATE.driverAnimTo.lat, e);
-    const lng = lerp(STATE.driverAnimFrom.lng, STATE.driverAnimTo.lng, e);
-    setDriverMarkerImmediate(lat, lng);
+    if (!STATE.markerDriver) return;
+    if (!d.hasFirstFix) return;
+    if (d.buf.length === 0) return;
 
-    if (clamped < 1) {
-      STATE.driverAnimRaf = requestAnimationFrame(tick);
-    } else {
-      STATE.driverAnimRaf = 0;
-      STATE.driverLastUpdateMs = Date.now();
-    }
+    // estimate server time using last point (rxMs - tsServerMs offset)
+    const last = d.buf[d.buf.length - 1];
+    const offset = last.rxMs - last.tsServerMs; // approx network+clock offset
+    const nowServerMs = Date.now() - offset;
+
+    driverPruneBuffer(nowServerMs);
+
+    // render at (now - delay)
+    const renderServerMs = nowServerMs - d.delayMs;
+
+    const sample = driverSampleAtTime(renderServerMs);
+    if (!sample) return;
+
+    // Smooth follow to avoid micro jitter even after interpolation
+    const current = STATE.markerDriver.getLatLng();
+    const targetLat = sample.lat;
+    const targetLng = sample.lng;
+
+    // follow factor depends on dt, keep smooth
+    const now = Date.now();
+    const dtMs = d.lastDispMs ? now - d.lastDispMs : 16;
+    d.lastDispMs = now;
+
+    // dynamic smoothing (lower = smoother)
+    const follow = clamp(dtMs / 350, 0.05, 0.22);
+
+    const newLat = lerp(current.lat, targetLat, follow);
+    const newLng = lerp(current.lng, targetLng, follow);
+
+    setDriverMarkerImmediate(newLat, newLng);
+
+    // fit rarely
+    fitIfBothThrottled(false);
   };
 
-  STATE.driverAnimRaf = requestAnimationFrame(tick);
+  d.raf = requestAnimationFrame(tick);
+}
+
+function driverStopLoop() {
+  const d = STATE.driver;
+  if (d.raf) cancelAnimationFrame(d.raf);
+  d.raf = 0;
+  d.buf = [];
+  d.rxIntervals = [];
+  d.lastRxMs = 0;
+  d.delayMs = d.delayMin;
+  d.disp = null;
+  d.hasFirstFix = false;
+  d.vel = null;
+  d.lastVelFrom = null;
 }
 
 // ----------------------------
@@ -420,7 +604,7 @@ function stopAllLoops() {
   STATE.tPollDriver = null;
   STATE.tSendClientPos = null;
   STATE.tPollStatus = null;
-  cancelDriverAnim();
+  driverStopLoop();
 }
 
 function resetFlow({ keepName = true } = {}) {
@@ -479,11 +663,12 @@ async function pollDriverPosition() {
       const lat = Number(data.driver.lat);
       const lng = Number(data.driver.lng);
 
-      // ✅ smooth marker
-      startDriverAnim(lat, lng);
+      // Use server timestamp if present, else now
+      const tsServerMs =
+        (data.driver.ts && Number.isFinite(Number(data.driver.ts)) ? Number(data.driver.ts) : Date.now());
 
-      // ✅ fit throttle (pas à chaque fois)
-      fitIfBothThrottled(false);
+      driverAddPoint(lat, lng, tsServerMs);
+      driverStartLoop();
     }
 
     if (typeof data.remainingMs === "number") {
@@ -574,6 +759,9 @@ function startAcceptedLoops() {
   STATE.tPollDriver = setInterval(pollDriverPosition, CONFIG.POLL_DRIVER_MS || 3000);
   pollDriverPosition();
 
+  // start smoothing loop now (even before first driver point)
+  driverStartLoop();
+
   stopTimer(STATE.tCountdown);
   STATE.tCountdown = setInterval(() => {
     if (STATE.accessRemainingMs == null) {
@@ -595,6 +783,8 @@ function startAcceptedLoops() {
       STATE.tPollDriver = null;
       stopTimer(STATE.tCountdown);
       STATE.tCountdown = null;
+
+      driverStopLoop();
 
       disableRequest(false);
       showReset(true);
