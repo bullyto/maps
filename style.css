@@ -8,14 +8,18 @@
   --shadow: 0 18px 60px rgba(0,0,0,.35);
   --radius: 18px;
 
-  /* NEW (popup pro) */
-  --popupCardTop: rgba(255,255,255,.09);
-  --popupCardBot: rgba(255,255,255,.04);
-  --popupCardStroke: rgba(255,255,255,.14);
-  --popupInner: rgba(0,0,0,.20);
-  --popupInnerStroke: rgba(255,255,255,.12);
-  --popupBtn1:#2b7cff;
-  --popupBtn2:#5aa9ff;
+  /* POPUP (target exact) */
+  --pop-overlay: rgba(0,0,0,.55);              /* PAS DE FLOU */
+  --pop-card-stroke: rgba(255,255,255,.12);
+  --pop-card-top: rgba(11,28,45,.94);
+  --pop-card-bot: rgba(11,28,45,.84);
+  --pop-highlight: rgba(255,255,255,.08);
+  --pop-inner-bg: rgba(255,255,255,.06);
+  --pop-inner-stroke: rgba(255,255,255,.10);
+  --pop-input-bg: rgba(0,0,0,.24);
+  --pop-btn1:#2b7cff;
+  --pop-btn2:#5aa9ff;
+  --pop-green: rgba(60,220,140,.92);
 }
 
 *{box-sizing:border-box}
@@ -92,10 +96,12 @@ a{color:inherit;text-decoration:none}
 }
 
 /* =========================================================
-   POPUP CLIENT — STYLE "ULTRA PRO" (comme ta capture)
+   POPUP CLIENT — EXACTEMENT COMME TA CAPTURE (SANS FLOU)
+   - corrige tailles, formes, spacing
+   - ne dépend pas d’un HTML précis (fallback via descendants)
    ========================================================= */
 
-/* Overlay plein écran + flou */
+/* Overlay plein écran (SANS blur) */
 .clientPopup{
   position: fixed;
   inset: 0;
@@ -106,9 +112,10 @@ a{color:inherit;text-decoration:none}
   justify-content: center;
 
   padding: calc(env(safe-area-inset-top) + 18px) 16px calc(env(safe-area-inset-bottom) + 22px);
-  background: rgba(0,0,0,.46);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: var(--pop-overlay);
+
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 
   opacity: 0;
   pointer-events: none;
@@ -119,277 +126,280 @@ a{color:inherit;text-decoration:none}
   pointer-events: auto;
 }
 
-/* Carte popup (dégradé bleu nuit + glass) */
+/* Carte principale */
 .clientPopupCard{
-  width: min(520px, 92vw);
+  width: min(560px, 92vw);
   max-width: 92vw;
   border-radius: 26px;
-  border: 1px solid var(--popupCardStroke);
+  border: 1px solid var(--pop-card-stroke);
 
   background:
-    radial-gradient(900px 520px at 20% -20%, rgba(77,163,217,.18), transparent 56%),
-    radial-gradient(900px 520px at 110% 30%, rgba(255,255,255,.06), transparent 55%),
-    linear-gradient(180deg, rgba(11,28,45,.92), rgba(11,28,45,.78));
+    radial-gradient(900px 520px at 22% -28%, rgba(77,163,217,.14), transparent 58%),
+    radial-gradient(900px 520px at 110% 30%, rgba(255,255,255,.06), transparent 56%),
+    linear-gradient(180deg, var(--pop-card-top), var(--pop-card-bot));
 
-  box-shadow: 0 30px 110px rgba(0,0,0,.65);
+  box-shadow: 0 28px 100px rgba(0,0,0,.62);
   overflow: hidden;
 
   transform: translateY(10px) scale(.985);
   transition: transform .18s ease;
+
   position: relative;
 }
-
-/* léger highlight en haut (premium) */
 .clientPopupCard::before{
   content:"";
   position:absolute; inset:0;
   background:
-    linear-gradient(180deg, rgba(255,255,255,.08), transparent 28%),
-    radial-gradient(520px 180px at 50% 0%, rgba(255,255,255,.08), transparent 60%);
+    linear-gradient(180deg, var(--pop-highlight), transparent 30%),
+    radial-gradient(520px 180px at 50% 0%, rgba(255,255,255,.06), transparent 62%);
   pointer-events:none;
-  opacity:.75;
+  opacity:.65;
 }
-
 .clientPopup.isVisible .clientPopupCard{
   transform: translateY(0) scale(1);
 }
 
-/* Header (titre + close à droite) */
+/* Header (si présent) */
 .clientPopupHeader{
   display:flex;
-  align-items:center;
+  align-items:flex-start;
   justify-content:space-between;
-  gap:12px;
+  gap: 14px;
 
   padding: 18px 18px 10px;
-  border-bottom: 1px solid rgba(255,255,255,.10);
-  background: rgba(0,0,0,.12);
   position: relative;
   z-index: 1;
 }
 
-/* Bloc marque */
-.clientPopupBrand{
-  display:flex;
-  align-items:center;
-  gap:10px;
-  min-width:0;
-}
-.clientPopupLogo{
-  width: 36px;
-  height: 36px;
-  border-radius: 14px;
-  display:block;
-  border: 1px solid rgba(255,255,255,.14);
-  background: rgba(255,255,255,.06);
-  box-shadow: 0 12px 30px rgba(0,0,0,.35);
-}
-.clientPopupBrandText{
-  display:flex;
-  flex-direction:column;
-  line-height:1.08;
-  min-width:0;
-}
+/* Titre / sous-titre (si présent) */
 .clientPopupTitle{
-  font-size: 26px;
+  font-size: 30px;
   font-weight: 950;
   margin:0;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
   letter-spacing:.2px;
+  line-height:1.08;
 }
 .clientPopupSub{
-  margin:10px 0 0;
-  opacity:.88;
-  font-size: 18px;
+  margin: 10px 0 0;
+  opacity:.72;
+  font-size: 16.5px;
   line-height: 1.25;
-  white-space:normal;
 }
 
-/* Close: carré arrondi, bord fin, discret (comme capture) */
+/* Close (si présent) */
 .clientPopupClose{
   appearance:none;
   border: 1px solid rgba(255,255,255,.14);
   background: rgba(255,255,255,.05);
-  color: rgba(255,255,255,.92);
+  color: rgba(255,255,255,.90);
   border-radius: 16px;
-  width: 48px;
-  height: 48px;
-  display: grid;
-  place-items: center;
-  font-weight: 950;
+  width: 52px;
+  height: 52px;
+  display:grid;
+  place-items:center;
+  font-size: 24px;
+  line-height: 1;
   cursor:pointer;
   transition: transform .08s ease, background .12s ease, border-color .12s ease;
 }
 .clientPopupClose:hover{ background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.18); }
 .clientPopupClose:active{ transform: scale(.99); }
 
-/* Body */
+/* Body (si présent) */
 .clientPopupBody{
-  padding: 14px 18px 18px;
+  padding: 8px 18px 18px;
   display:grid;
   gap: 14px;
   position: relative;
   z-index: 1;
 }
 
-/* Bloc "Position partagée" : grande card interne */
-.clientChips{
-  display:flex;
-  gap:10px;
-  justify-content:center;
-  flex-wrap:wrap;
-  margin: 0;
+/* ---------- FALLBACK : si ton HTML n’a pas .clientPopupHeader/.clientPopupBody ---------- */
+.clientPopupCard{
+  padding: 18px 18px 18px;
+}
+.clientPopupCard .clientPopupHeader,
+.clientPopupCard .clientPopupBody{
+  padding: 0;
+}
+.clientPopupCard > .clientPopupHeader + .clientPopupBody{
+  margin-top: 0;
 }
 
-.chip{
+/* Titre fallback : h1/h2/.popupTitle en premier dans la carte */
+.clientPopupCard h1,
+.clientPopupCard h2,
+.clientPopupCard .popupTitle{
+  font-size: 30px;
+  font-weight: 950;
+  margin: 0 0 10px;
+  letter-spacing:.2px;
+  line-height: 1.08;
+}
+
+/* Sous-texte fallback : .popupHint / p */
+.clientPopupCard .popupHint,
+.clientPopupCard p{
+  margin: 0 0 14px;
+  opacity: .72;
+  font-size: 16.5px;
+  line-height: 1.25;
+}
+
+/* Bloc "Position ..." : si tu utilises .popupRow (ton HTML actuel) */
+.clientPopupCard .popupRow{
   display:flex;
   align-items:center;
-  gap:12px;
+  gap: 14px;
+
   padding: 16px 16px;
   border-radius: 18px;
-  border: 1px solid rgba(255,255,255,.10);
-  background: rgba(0,0,0,.18);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  width: 100%;
-  justify-content: center;
-  box-shadow: 0 16px 42px rgba(0,0,0,.32);
-  font-size: 20px;
+
+  border: 1px solid var(--pop-inner-stroke);   /* PAS dashed */
+  background: var(--pop-inner-bg);
+
+  box-shadow: 0 16px 40px rgba(0,0,0,.28);
   font-weight: 900;
+  font-size: 18px;
 }
 
+/* Si tu utilises .clientChips/.chip (autre HTML) */
+.clientChips{display:flex;justify-content:center;margin:0;}
+.chip{
+  width: 100%;
+  display:flex;
+  align-items:center;
+  gap: 14px;
+  padding: 16px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--pop-inner-stroke);
+  background: var(--pop-inner-bg);
+  box-shadow: 0 16px 40px rgba(0,0,0,.28);
+  font-weight: 900;
+}
 .chip .dot{
-  width: 40px;
-  height: 40px;
-  border-radius: 16px;
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
   display:grid;
   place-items:center;
   background: rgba(255,255,255,.06);
   border: 1px solid rgba(255,255,255,.10);
-  box-shadow: 0 10px 25px rgba(0,0,0,.22);
-  animation: none;
+  box-shadow: 0 10px 24px rgba(0,0,0,.22);
+  animation:none;
 }
+.chip strong{font-size: 18px; display:block; line-height:1.1;}
+.chip small{display:block;margin-top:4px;font-size:14px;font-weight:800;opacity:.70;}
 
-/* Ligne (±7m) en petit sous le texte si besoin */
-.chip small{
+/* Label + input : supporte .clientLabel/.clientInput ET tes classes .label/.input */
+.clientPopupCard .clientLabel,
+.clientPopupCard .popupForm .label,
+.clientPopupCard label{
   display:block;
-  margin-top: 4px;
-  font-size: 14px;
+  font-size: 14.5px;
   font-weight: 800;
-  opacity: .70;
+  opacity: .50;
+  margin: 2px 0 10px;
 }
 
-/* Form */
-.clientForm{
-  display:grid;
-  gap: 12px;
-  margin-top: 2px;
-}
-.clientLabel{
-  font-size: 18px;
-  opacity: .55;
-  font-weight: 800;
-  letter-spacing:.1px;
-}
-.clientInput{
+.clientPopupCard .clientInput,
+.clientPopupCard .input,
+.clientPopupCard input[type="text"],
+.clientPopupCard input[type="tel"],
+.clientPopupCard input[type="search"],
+.clientPopupCard input{
   width: 100%;
   padding: 18px 18px;
   border-radius: 20px;
   border: 1px solid rgba(255,255,255,.12);
-  background: rgba(0,0,0,.22);
+  background: var(--pop-input-bg);
   color: var(--white);
   outline: none;
-  font-size: 22px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  font-size: 18px;
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.02);
 }
-.clientInput::placeholder{color: rgba(255,255,255,.35)}
-.clientInput:focus{
+.clientPopupCard input::placeholder{color: rgba(255,255,255,.35)}
+.clientPopupCard input:focus{
   border-color: rgba(90,169,255,.55);
   box-shadow: 0 0 0 4px rgba(43,124,255,.16);
 }
 
-/* Ligne "Prêt — ..." avec pastille verte */
-.clientNotice{
+/* Ligne "Prêt — ..." : supporte .clientNotice OU .notice dans la popup */
+.clientPopupCard .clientNotice,
+.clientPopupCard .notice{
+  margin: 12px 0 0;
   padding: 0;
   border: 0;
   background: transparent;
   opacity: 1;
-  font-size: 16px;
+
+  font-size: 14.5px;
   color: rgba(255,255,255,.60);
+
   display:flex;
   align-items:center;
   gap: 10px;
-  margin-top: 2px;
 }
-.clientNotice::before{
+.clientPopupCard .clientNotice::before,
+.clientPopupCard .notice::before{
   content:"";
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border-radius: 999px;
-  background: rgba(60,220,140,.92);
+  background: var(--pop-green);
   box-shadow: 0 0 0 6px rgba(60,220,140,.16);
   display:inline-block;
 }
 
-/* Bouton principal : gros pill bleu */
-.clientBtnRow{
-  display:grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-  margin-top: 6px;
-}
-.clientBtn{
+/* Bouton principal : supporte .clientBtn ET .btn */
+.clientPopupCard .clientBtnRow{margin-top: 14px;}
+.clientPopupCard .clientBtn,
+.clientPopupCard .btn,
+.clientPopupCard button{
   width: 100%;
   padding: 18px 18px;
-  border-radius: 26px;
+  border-radius: 28px;
   border: 1px solid rgba(90,169,255,.55);
-  background: linear-gradient(135deg, var(--popupBtn1), var(--popupBtn2));
+  background: linear-gradient(135deg, var(--pop-btn1), var(--pop-btn2));
   color: #fff;
   font-weight: 950;
-  font-size: 24px;
+  font-size: 22px;
   letter-spacing: .2px;
   cursor:pointer;
   transition: transform .08s ease, filter .12s ease, box-shadow .12s ease;
   box-shadow: 0 22px 55px rgba(43,124,255,.28);
 }
-.clientBtn:active{transform: scale(.99)}
-.clientBtn[disabled]{opacity:.55; cursor:not-allowed; filter: grayscale(.2)}
-.clientBtn.secondary{
-  border-color: rgba(255,255,255,.14);
-  background: rgba(255,255,255,.06);
-  box-shadow: none;
-}
+.clientPopupCard button:active,
+.clientPopupCard .btn:active,
+.clientPopupCard .clientBtn:active{transform: scale(.99)}
+.clientPopupCard button[disabled],
+.clientPopupCard .btn[disabled],
+.clientPopupCard .clientBtn[disabled]{opacity:.55; cursor:not-allowed; filter: grayscale(.2)}
 
-/* Footer interne (séparateur + texte gris centré) */
+/* Footer dans la popup (si tu le mets dedans via .popupFooter ou .clientPopupFooter) */
+.clientPopupCard .popupFooter,
 .clientPopupFooter{
-  margin-top: 8px;
+  margin-top: 14px;
   padding: 16px 18px 18px;
   border-top: 1px solid rgba(255,255,255,.10);
   color: rgba(255,255,255,.42);
-  font-size: 16px;
+  font-size: 14px;
   text-align: center;
   line-height: 1.25;
-  position: relative;
-  z-index: 1;
 }
 
-/* Responsive */
+/* Mobile */
 @media (max-width: 420px){
   .clientPopup{ padding: calc(env(safe-area-inset-top) + 14px) 14px calc(env(safe-area-inset-bottom) + 18px); }
-  .clientPopupCard{ width: min(420px, 92vw); border-radius: 24px; }
-  .clientPopupHeader{ padding: 16px 16px 10px; }
-  .clientPopupBody{ padding: 14px 16px 16px; gap: 12px; }
-  .clientPopupTitle{ font-size: 30px; }
-  .clientPopupSub{ font-size: 18px; margin-top: 10px; }
-  .chip{ font-size: 20px; padding: 16px 14px; }
-  .clientLabel{ font-size: 18px; }
-  .clientInput{ font-size: 22px; padding: 18px 16px; }
-  .clientBtn{ font-size: 24px; padding: 18px 16px; }
-  .clientPopupClose{ width: 50px; height: 50px; }
+  .clientPopupCard{ border-radius: 26px; }
+  .clientPopupCard h1,
+  .clientPopupCard h2,
+  .clientPopupCard .popupTitle{ font-size: 30px; }
+  .clientPopupCard .popupHint,
+  .clientPopupCard p{ font-size: 16.5px; }
+  .clientPopupCard .popupRow{ font-size: 18px; }
+  .clientPopupCard input{ font-size: 18px; }
+  .clientPopupCard button{ font-size: 22px; }
 }
 
 /* =========================
@@ -646,17 +656,4 @@ body.client .legalBar{
   left: 0;
   right: 0;
   bottom: 0;
-}
-
-/* ---------- Footer popup (si ton HTML l'utilise) ---------- */
-.clientPopup .popupFooter,
-.clientPopupFooter,
-.clientPopup .popupFooter{
-  margin-top: 8px;
-  padding: 16px 18px 18px;
-  border-top: 1px solid rgba(255,255,255,.10);
-  color: rgba(255,255,255,.42);
-  font-size: 16px;
-  text-align: center;
-  line-height: 1.25;
 }
