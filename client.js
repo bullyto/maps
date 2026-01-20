@@ -1,3 +1,4 @@
+// /maps/client.js
 import { CONFIG } from "./config.js";
 
 // ------------------------------------------------------------
@@ -411,18 +412,10 @@ async function pollDriverPosition() {
   } catch (e) {
     console.log("[driver_position]", e?.message || e);
 
-    STATE.status = "expired";
-    setBadge("Accès terminé");
-    setState("Accès terminé");
-    setCountdown("0:00");
-
-    disableRequest(false);
-    showReset(true);
-
-    stopTimer(STATE.tPollDriver);
-    stopTimer(STATE.tSendClientPos);
-    STATE.tPollDriver = null;
-    STATE.tSendClientPos = null;
+    // ✅ CORRECTION:
+    // NE PAS terminer l'accès sur une erreur de position.
+    // Le livreur peut ne pas avoir encore envoyé son GPS (ou réseau instable).
+    // On réessaiera au prochain poll.
   }
 }
 
