@@ -49,18 +49,6 @@ const STATE = {
   accessRemainingMs: null,
 };
 
-// Robust parsing (backend may return numbers as strings)
-function toNumber(val, fallback = 0) {
-  const n = Number(val);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function toRemainingMs(val) {
-  const n = toNumber(val, NaN);
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.floor(n));
-}
-
 // ----------------------------
 // UI helpers
 // ----------------------------
@@ -83,9 +71,11 @@ function setGeo(text) {
 
 function setPopupVisible(visible) {
   if (!els.popup) return;
-  // Use both a hard hide + a soft visible class to avoid "flash" at load
-  els.popup.classList.toggle("is-hidden", !visible);
-  els.popup.classList.toggle("is-visible", visible);
+  if (visible) {
+    els.popup.classList.add("isVisible");
+  } else {
+    els.popup.classList.remove("isVisible");
+  }
 }
 
 function updatePopupVisibility() {
@@ -95,9 +85,8 @@ function updatePopupVisibility() {
   // - Elle DOIT réapparaître quand le temps arrive à 0 (accès terminé).
 
   const isAccepted = STATE.status === "accepted";
-  const remaining = typeof STATE.accessRemainingMs === "number" ? STATE.accessRemainingMs : null;
-  // On masque uniquement quand le chrono est réellement actif (> 0)
-  const hasActiveAccess = isAccepted && remaining !== null && remaining > 0;
+  const remaining = STATE.accessRemainingMs;
+  const hasActiveAccess = isAccepted && (remaining == null || remaining > 0);
 
   setPopupVisible(!hasActiveAccess);
 }
@@ -416,19 +405,24 @@ async function pollDriverPosition() {
       fitIfBoth();
     }
 
-    const rem = toRemainingMs(data?.remainingMs);
-    if (rem > 0) {
-      STATE.accessRemainingMs = rem;
+    if (typeof data.remainingMs === "number") {
+      STATE.accessRemainingMs = data.remainingMs;
     }
   } catch (e) {
     console.log("[driver_position]", e?.message || e);
 
-    // Network / server hiccup: do NOT invalidate access.
-    // Keep the last known state and simply show a soft "reconnecting" message.
-    if (STATE.status === "accepted") {
-      setBadge("Suivi actif");
-    }
-    setState("Connexion…");
+    STATE.status = "expired";
+    setBadge("Accès terminé");
+    setState("Accès terminé");
+    setCountdown("0:00");
+
+    disableRequest(false);
+    showReset(true);
+
+    stopTimer(STATE.tPollDriver);
+    stopTimer(STATE.tSendClientPos);
+    STATE.tPollDriver = null;
+    STATE.tSendClientPos = null;
   }
 }
 
@@ -478,16 +472,11 @@ async function pollStatus() {
     }
 
     if (status === "accepted") {
-      setBadge("Suivi actif");
+      setBadge("Autorisé ✅");
       setState("Suivi actif");
 
-      // remainingMs may arrive as number or string
-      const rem = toRemainingMs(access?.remainingMs);
-      if (rem > 0) {
-        STATE.accessRemainingMs = rem;
-      } else if (STATE.accessRemainingMs == null) {
-        // fallback: default to 30 minutes if backend omits the value
-        STATE.accessRemainingMs = 30 * 60 * 1000;
+      if (typeof access?.remainingMs === "number") {
+        STATE.accessRemainingMs = access.remainingMs;
       }
 
       stopTimeout(STATE.tPollStatus);
@@ -654,9 +643,6 @@ function boot() {
     disableRequest(!STATE.clientPos);
     showReset(false);
   }
-
-  // Ensure the popup is in a correct state on first paint (avoid "invisible" bug)
-  updatePopupVisibility();
 }
 
 document.addEventListener("DOMContentLoaded", boot);
