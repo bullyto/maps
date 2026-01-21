@@ -85,6 +85,13 @@ const STATE = {
 
     // max speed clamp (deg/ms converted later), we clamp in meters approx
     maxSpeedMps: 45, // 162 km/h (safe clamp)
+
+    // ✅ NEW: cadence + glide (anti "pause" entre points)
+    // On veut une glissade ~2.9s si le poll est 3s.
+    pollMs: 3000, // valeur actuelle (CONFIG.POLL_DRIVER_MS)
+    glideTargetMs: 2900, // demandé: 2.9s
+    glideMarginMs: 80, // petite marge de sécurité
+    lastPollApplyMs: 0,
   },
 };
 
@@ -311,6 +318,21 @@ function approxMeters(aLat, aLng, bLat, bLng) {
   return R * c;
 }
 
+function driverApplyPollGlideDefaults() {
+  const d = STATE.driver;
+
+  // poll interval from config (fallback 3000)
+  const poll = Number(CONFIG.POLL_DRIVER_MS || 3000);
+  if (Number.isFinite(poll) && poll > 500) d.pollMs = poll;
+
+  // requested: glide around 2.9s when poll=3s, and always close to poll
+  // We'll keep a small margin so we never "overshoot".
+  const desired = 2900;
+  d.glideTargetMs = clamp(desired, 800, Math.max(800, d.pollMs - d.glideMarginMs));
+
+  d.lastPollApplyMs = Date.now();
+}
+
 function driverAddPoint(lat, lng, tsServerMs) {
   const d = STATE.driver;
   const rxMs = Date.now();
@@ -460,18 +482,22 @@ function driverStartLoop() {
     const sample = driverSampleAtTime(renderServerMs);
     if (!sample) return;
 
-    // Smooth follow to avoid micro jitter even after interpolation
     const current = STATE.markerDriver.getLatLng();
     const targetLat = sample.lat;
     const targetLng = sample.lng;
 
-    // follow factor depends on dt, keep smooth
     const now = Date.now();
     const dtMs = d.lastDispMs ? now - d.lastDispMs : 16;
     d.lastDispMs = now;
 
-    // dynamic smoothing (lower = smoother)
-    const follow = clamp(dtMs / 350, 0.05, 0.22);
+    // ✅ NEW: follow factor tuned to "glideTargetMs" (2.9s)
+    // Goal: take ~2.9s to converge to a new target (instead of 0.5s then pause).
+    // We model it as a first-order low-pass:
+    //   alpha = dt / tau ; where tau ~= glideTargetMs/3 (gives ~95% in ~3*tau)
+    // So if glideTargetMs=2900ms => tau ~ 966ms => smooth, continuous movement.
+    const tau = Math.max(180, d.glideTargetMs / 3);
+    const alphaRaw = dtMs / tau;
+    const follow = clamp(alphaRaw, 0.03, 0.18); // clamp for stability
 
     const newLat = lerp(current.lat, targetLat, follow);
     const newLng = lerp(current.lng, targetLng, follow);
@@ -497,6 +523,8 @@ function driverStopLoop() {
   d.hasFirstFix = false;
   d.vel = null;
   d.lastVelFrom = null;
+
+  // keep glide settings
 }
 
 // ----------------------------
@@ -751,6 +779,9 @@ async function pollStatus() {
 }
 
 function startAcceptedLoops() {
+  // ✅ apply cadence/glide once when accepted loops start
+  driverApplyPollGlideDefaults();
+
   stopTimer(STATE.tSendClientPos);
   STATE.tSendClientPos = setInterval(sendClientPositionUpdate, CONFIG.SEND_CLIENT_POS_MS || 8000);
   sendClientPositionUpdate();
@@ -882,6 +913,9 @@ function boot() {
 
   if (els.btnRequest) els.btnRequest.addEventListener("click", handleRequestClick);
   if (els.btnReset) els.btnReset.addEventListener("click", handleResetClick);
+
+  // ✅ apply cadence/glide at boot too (safe)
+  driverApplyPollGlideDefaults();
 
   startGeolocation();
 
