@@ -1,68 +1,389 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Suivi de commande • Apéro de Nuit 66</title>
-  <link rel="stylesheet" href="./style.css">
-  <link rel="icon" href="./assets/icon-192.png">
-  <!-- IMPORTANT: pas de manifest ici -> le navigateur ne proposera pas d'installer la PWA côté client -->
-  <link rel="preconnect" href="https://unpkg.com">
-  <link rel="preconnect" href="https://cdnjs.cloudflare.com">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>ADN66 • Carte de fidélité</title>
+  <meta name="theme-color" content="#050b12" />
+
+  <style>
+    :root{
+      --blue:#0b1c2d;
+      --sky:#5db7ee;
+      --text:#0b1c2d;
+      --muted:rgba(11,28,45,.65);
+      --line:rgba(11,28,45,.15);
+      --shadow:0 12px 30px rgba(0,0,0,.08);
+      --shadowBtn:0 10px 18px rgba(93,183,238,.32);
+      --radiusCard:18px;
+      --radiusBtn:14px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      background:radial-gradient(1200px 800px at 50% -10%, rgba(93,183,238,.16), transparent 55%), #050b12;
+      color:#fff;
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:12px; /* ✅ max largeur sans toucher les bords */
+    }
+
+    .wrap{width:100%;display:flex;justify-content:center}
+    .stack{position:relative;width:min(720px,100%)}
+
+    .stack::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      border-radius:var(--radiusCard);
+      background:rgba(255,255,255,.92);
+      border:1px solid var(--line);
+      box-shadow:var(--shadow);
+      transform:translateY(14px) scale(.985);
+      opacity:.55;
+      z-index:0;
+    }
+
+    .card{
+      position:relative;
+      z-index:1;
+      background:#fff;
+      border-radius:var(--radiusCard);
+      border:1px solid var(--line);
+      box-shadow:var(--shadow);
+      overflow:hidden;
+      color:var(--text);
+    }
+
+    .card-h{
+      padding:14px;
+      border-bottom:1px solid var(--line);
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+    }
+    .card-h h1{
+      margin:0;
+      font-size:22px;
+      font-weight:900;
+      letter-spacing:-.2px;
+    }
+    .tag{
+      font-size:14px;
+      color:var(--muted);
+      font-weight:800;
+      text-align:right;
+      line-height:1.2;
+    }
+
+    .panel{padding:14px}
+
+    .kpis{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-end;
+      gap:10px;
+      padding:6px 2px 12px 2px;
+    }
+    .kpis .big{
+      font-size:40px;
+      font-weight:1000;
+      letter-spacing:-1px;
+      line-height:1;
+    }
+    .kpis .right{
+      color:var(--muted);
+      font-weight:900;
+      font-size:18px;
+      line-height:1.1;
+      text-align:right;
+    }
+
+    .row{display:flex;gap:12px;flex-wrap:wrap;margin-top:14px}
+    button{
+      flex:1;
+      min-width:0; /* ✅ évite les débordements */
+      padding:14px 16px;
+      border-radius:var(--radiusBtn);
+      font-weight:900;
+      font-size:18px;
+      border:none;
+      cursor:pointer;
+      background:var(--sky);
+      color:#fff;
+      box-shadow:var(--shadowBtn);
+    }
+    button.secondary{
+      background:#fff;
+      color:var(--blue);
+      border:1px solid var(--line);
+      box-shadow:none;
+    }
+
+    /* ✅ carte max largeur, sans distorsion */
+    .visual{
+      width:100%;
+      position:relative;
+      border-radius:16px;
+      overflow:hidden;
+      border:1px solid var(--line);
+      background:#fff;
+    }
+    .visual img{
+      width:100%;
+      height:auto;
+      display:block;
+    }
+
+    /* ===== Tampons (suivent la carte en %) ===== */
+    .stamp{
+      position:absolute;
+      width:15.05%;
+      aspect-ratio:1/1;
+      background:url("tampon.png") center/contain no-repeat;
+      opacity:0;
+      transform-origin:center;
+      transform:translate(-50%,-50%) rotate(var(--rot,0deg));
+      pointer-events:none;
+      filter:contrast(1.05);
+    }
+    .stamp.filled{opacity:1}
+
+    /* positions (5 en haut / 3 en bas) */
+    .s1{left:18.1%; top:44.6%;}
+    .s2{left:34.1%; top:44.6%;}
+    .s3{left:50.1%; top:44.6%;}
+    .s4{left:65.5%; top:44.6%;}
+    .s5{left:81.5%; top:44.6%;}
+    .s6{left:25.7%; top:66.4%;}
+    .s7{left:42.5%; top:66.4%;}
+    .s8{left:59.3%; top:66.4%;}
+
+    /* ===== Modals ===== */
+    .modal{
+      position:fixed;
+      inset:0;
+      background:rgba(11,28,45,.55);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:12px;
+      z-index:9999;
+    }
+    .modal.open{display:flex}
+
+    /* ✅ ne dépasse jamais : pas de scroll page */
+    .modal .box{
+      width:min(720px,100%);
+      background:#fff;
+      border:1px solid var(--line);
+      border-radius:18px;
+      overflow:hidden;
+      box-shadow:var(--shadow);
+      max-height:92vh;
+      display:flex;
+      flex-direction:column;
+    }
+    .modal .head{
+      padding:12px 14px;
+      border-bottom:1px solid var(--line);
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      font-weight:1000;
+      color:var(--text);
+    }
+    .modal .content{
+      padding:14px;
+      flex:1;
+      min-height:0;
+    }
+
+    .tabs{
+      display:flex;
+      gap:8px;
+    }
+    .tab{
+      padding:8px 10px;
+      border-radius:999px;
+      border:1px solid var(--line);
+      background:#fff;
+      color:var(--blue);
+      font-weight:900;
+      font-size:14px;
+      cursor:pointer;
+      user-select:none;
+    }
+    .tab.active{
+      background:rgba(93,183,238,.18);
+      border-color:rgba(93,183,238,.45);
+    }
+
+    label{display:block;margin:10px 0 6px;font-weight:900;color:var(--muted)}
+    input{
+      width:100%;
+      padding:12px 14px;
+      border-radius:14px;
+      border:1px solid var(--line);
+      outline:none;
+      font-size:16px;
+    }
+    .hint{color:var(--muted);font-weight:700;margin-top:6px;font-size:13px}
+
+    /* ✅ scan ne dépasse plus : hauteur responsive */
+    .scan{
+      width:100%;
+      border-radius:16px;
+      border:1px solid var(--line);
+      background:#0b1c2d;
+      height:min(52vh, 420px);
+      min-height:220px;
+      overflow:hidden;
+      position:relative;
+      box-shadow:0 10px 22px rgba(0,0,0,.12);
+      margin-top:10px;
+    }
+    video{width:100%;height:100%;object-fit:cover}
+
+    .qrbox{
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      padding:16px;
+      border:1px solid var(--line);
+      border-radius:16px;
+      background:#fff;
+    }
+
+    @media (max-height:700px){
+      .modal .head{padding:10px 12px}
+      .modal .content{padding:12px}
+      .scan{height:min(46vh, 360px); min-height:200px;}
+      button{font-size:17px;padding:13px 14px}
+      .kpis .big{font-size:36px}
+    }
+  </style>
 </head>
-<body class="client">
-  <div class="clientShell">
-    <!-- La carte occupe tout l’écran. Le bandeau + popup passent AU-DESSUS. -->
-    <div class="mapWrap clientMapWrap" aria-label="Carte">
-      <div id="map" class="clientMap"></div>
 
-      <header class="clientTopbar" aria-label="Bandeau suivi">
-        <div class="topBrand" aria-label="Marque">
-          <img class="topBrandLogo" alt="Apéro de Nuit 66" src="https://raw.githubusercontent.com/bullyto/apero/main/assets/logo-header.png">
+<body>
+  <div class="wrap">
+    <div class="stack">
+      <div class="card">
+        <div class="card-h">
+          <h1>Ma carte virtuelle</h1>
+          <div class="tag" id="stateText">—</div>
         </div>
 
-        <div class="topTimer" aria-label="Temps restant">
-          <span class="topIcon" aria-hidden="true">⏱️</span>
-          <span id="countdown">—</span>
+        <!-- START (quand pas de client_id) -->
+        <div class="panel" id="startBlock" style="display:none">
+          <div class="hint" style="font-size:16px">
+            Crée ta carte, puis affiche ton QR.<br>
+            Tu pourras aussi restaurer une carte perdue.
+          </div>
+          <div class="row">
+            <button id="btnOpenCreate">Créer ma carte</button>
+            <button class="secondary" id="btnOpenRestore">Restaurer</button>
+          </div>
         </div>
 
-        <div class="topState" aria-label="État">
-          <span class="dot" aria-hidden="true"></span>
-          <span id="stateText">—</span>
-        </div>
-      </header>
-
-      <!-- Popup minimaliste au-dessus de la carte -->
-      <section class="clientPopup" aria-label="Panneau de suivi" aria-live="polite">
-        <div class="clientPopupCard">
-          <h1 class="clientPopupTitle">Suivi en direct</h1>
-          <p class="clientPopupSub">Indiquez votre prénom pour activer le suivi.</p>
-
-          <div class="clientPopupRow" aria-label="Statut géolocalisation">
-            <span class="clientPopupRowI" aria-hidden="true">📍</span>
-            <span id="geoText">en attente…</span>
+        <!-- CARD (quand on a une carte) -->
+        <div class="panel" id="cardBlock" style="display:none">
+          <div class="kpis">
+            <div class="big"><span id="points">0</span> / <span id="goal">8</span></div>
+            <div class="right" id="syncText">—</div>
           </div>
 
-          <div class="clientForm">
-            <label class="clientLabel" for="name"> </label>
-            <input id="name" class="clientInput" maxlength="24" autocomplete="given-name" placeholder="Ex: Lucas">
+          <div class="visual">
+            <!-- ⚠️ IMPORTANT: mets le bon nom de fichier si besoin -->
+            <img src="carte.png" alt="Carte de fidélité">
+            <div class="stamp s1" data-slot="1" style="--rot:-18deg"></div>
+            <div class="stamp s2" data-slot="2" style="--rot:-14deg"></div>
+            <div class="stamp s3" data-slot="3" style="--rot:12deg"></div>
+            <div class="stamp s4" data-slot="4" style="--rot:-10deg"></div>
+            <div class="stamp s5" data-slot="5" style="--rot:14deg"></div>
+            <div class="stamp s6" data-slot="6" style="--rot:-12deg"></div>
+            <div class="stamp s7" data-slot="7" style="--rot:10deg"></div>
+            <div class="stamp s8" data-slot="8" style="--rot:16deg"></div>
           </div>
 
-          <div class="clientBtnRow">
-            <button id="btnRequest" class="clientBtn" type="button">Activer le suivi</button>
-            <button id="btnReset" class="clientBtn secondary" type="button" style="display:none">Relancer</button>
+          <div class="row">
+            <button id="btnShowQr">Afficher mon QR</button>
+            <button class="secondary" id="btnRefresh">Rafraîchir</button>
           </div>
-
-          <div class="clientHint">  </div>
         </div>
-      </section>
-
-      <div class="legal">L’abus d’alcool est dangereux pour la santé, à consommer avec modération.</div>
+      </div>
     </div>
   </div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script type="module" src="./client.js"></script>
+  <!-- Modal Action (Create / Restore + Scan) -->
+  <div class="modal" id="actionModal" aria-hidden="true">
+    <div class="box">
+      <div class="head">
+        <b id="modalTitle">Créer ma carte</b>
+        <div class="tabs">
+          <div class="tab active" id="tabCreate">Créer</div>
+          <div class="tab" id="tabRestore">Restaurer</div>
+        </div>
+      </div>
+
+      <div class="content">
+        <!-- Create -->
+        <div id="createView">
+          <label>Prénom</label>
+          <input id="name" autocomplete="given-name" placeholder="Ex: Kevin" />
+          <label>Téléphone</label>
+          <input id="phone" inputmode="tel" autocomplete="tel" placeholder="06..." />
+          <div class="row">
+            <button id="btnCreate">Créer</button>
+            <button class="secondary" id="btnCloseModal1">Fermer</button>
+          </div>
+        </div>
+
+        <!-- Restore -->
+        <div id="restoreView" style="display:none">
+          <div class="scan"><video id="video" playsinline></video></div>
+          <div class="row">
+            <button id="btnStartScan">Scanner</button>
+            <button class="secondary" id="btnCloseModal2">Fermer</button>
+          </div>
+
+          <label>Ou coller</label>
+          <input id="manualCid" placeholder="Colle une URL ou un ID…" />
+          <div class="row">
+            <button class="secondary" id="btnUseManual">Utiliser</button>
+          </div>
+          <div class="hint" id="scanHint"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal QR -->
+  <div class="modal" id="qrModal" aria-hidden="true">
+    <div class="box">
+      <div class="head">
+        <b>Mon QR</b>
+      </div>
+      <div class="content">
+        <div class="qrbox"><div id="qrSvg"></div></div>
+        <div class="row">
+          <button class="secondary" id="btnCopyLink">Copier le lien</button>
+          <button class="secondary" id="qrClose">Fermer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- QR lib (OFFICIEL) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <!-- App -->
+  <script src="./client.js"></script>
 </body>
 </html>
